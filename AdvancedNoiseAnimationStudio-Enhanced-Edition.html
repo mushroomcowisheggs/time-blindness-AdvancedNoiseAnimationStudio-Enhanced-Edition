@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Advanced Noise Animation Studio</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "@ffmpeg/ffmpeg": "./node_modules/@ffmpeg/ffmpeg/dist/esm/index.js",
+      "@ffmpeg/core/": "./node_modules/@ffmpeg/core/dist/esm/"
+    }
+  }
+  </script>
+  <link rel="stylesheet" href="./assets/css/common.css">
+</head>
+<body>
+  <div class="header">
+    <h1>Advanced Noise Animation Studio</h1>
+    <p>Create dynamic noise animations with depth mapping, text, shapes, and images</p>
+  </div>
+
+  <div class="main-container">
+    <div class="controls-panel">
+      <!-- Depth Mapping Section -->
+      <div class="control-section">
+        <div class="section-header" onclick="toggleSection('depth')">
+          Depth Mapping
+          <div class="status-indicator" id="depthStatus"></div>
+        </div>
+        <div class="section-content" id="depthContent">
+
+
+          <div class="control-group">
+            <span class="control-group-label">Depth Source</span>
+            <div class="radio-group">
+              <label><input type="radio" name="depthSource" value="image" checked> Image</label>
+              <label><input type="radio" name="depthSource" value="video"> Video</label>
+            </div>
+          </div>
+
+          <div class="control-group" id="depthImageGroup">
+            <label for="depthImageInput">Depth Map Image</label>
+            <div class="file-input-wrapper">
+              <input type="file" id="depthImageInput" accept="image/*">
+              <div class="file-input-label">Choose Image</div>
+            </div>
+          </div>
+
+          <div class="control-group" id="depthVideoGroup" style="display: none;">
+            <label for="depthVideoInput">Depth Map Video</label>
+            <div class="file-input-wrapper">
+              <input type="file" id="depthVideoInput" accept="video/*">
+              <div class="file-input-label">Choose Video</div>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label for="foregroundSpeed">Foreground Speed (px/sec)</label>
+            <input type="number" id="foregroundSpeed" value="60" min="1" max="300">
+
+            <label for="lowerThreshold">Depth Range Min</label>
+            <div class="control-row">
+              <input type="range" id="lowerThreshold" value="128" min="0" max="255" step="1">
+              <div class="value-display" id="lowerThresholdValue">128</div>
+            </div>
+
+            <label for="upperThreshold">Depth Range Max</label>
+            <div class="control-row">
+              <input type="range" id="upperThreshold" value="255" min="0" max="255" step="1">
+              <div class="value-display" id="upperThresholdValue">255</div>
+            </div>
+
+            <label for="edgeThreshold">Edge Detection Threshold</label>
+            <div class="control-row">
+              <input type="range" id="edgeThreshold" value="30" min="0" max="100" step="1">
+              <div class="value-display" id="edgeThresholdValue">30</div>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label for="depthScale">Depth Scale</label>
+            <input type="number" id="depthScale" value="2" step="0.1" min="0.1" max="10">
+            <div class="small-text">Multiplier for depth-based movement speed</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Content Section -->
+      <div class="control-section">
+        <div class="section-header" onclick="toggleSection('content')">
+          Content
+          <div class="status-indicator" id="contentStatus"></div>
+        </div>
+        <div class="section-content" id="contentContent">
+          <div class="control-group">
+            <label for="contentType">Content Type</label>
+            <select id="contentType">
+              <option value="text">Text</option>
+              <option value="image">Image</option>
+              <option value="shape">Shape</option>
+            </select>
+          </div>
+
+          <div class="control-group" id="textControls">
+            <label for="textInput">Text Content</label>
+            <input type="text" id="textInput" value="NOISE" placeholder="Enter text...">
+            
+            <label for="fontSize">Font Size (%)</label>
+            <input type="number" id="fontSize" value="30" min="5" max="100">
+          </div>
+
+          <div class="control-group" id="imageControls" style="display: none;">
+            <label for="imageInput">Foreground Image</label>
+            <div class="file-input-wrapper">
+              <input type="file" id="imageInput" accept="image/*">
+              <div class="file-input-label">Choose Image</div>
+            </div>
+          </div>
+
+          <div class="control-group" id="shapeControls" style="display: none;">
+            <label for="shapeType">Shape Type</label>
+            <select id="shapeType">
+              <option value="rectangle">Rectangle</option>
+              <option value="circle">Circle</option>
+              <option value="polygon">Polygon</option>
+            </select>
+
+            <label for="shapeSize">Size (px)</label>
+            <input type="number" id="shapeSize" value="100" min="10" max="500">
+
+            <div id="polygonSides" style="display: none;">
+              <label for="shapeSides">Polygon Sides</label>
+              <input type="number" id="shapeSides" value="5" min="3" max="12">
+            </div>
+
+            <label>
+              <input type="checkbox" id="shapeMoveToggle">
+              Enable Shape Movement
+            </label>
+          </div>
+
+          <div class="control-group">
+            <button id="randomPosition" class="secondary">Random Position</button>
+          </div>
+        </div>
+      </div>
+
+
+
+
+    </div>
+
+    <div class="canvas-container">
+      <canvas id="noiseCanvas" width="960" height="540"></canvas>
+      
+      <!-- Animation Controls -->
+      <div class="animation-controls">
+        <div class="controls-grid">
+          <!-- Left Panel: Core Settings -->
+          <div class="control-panel core-settings">
+            <div class="panel-header">
+              <span class="panel-title">⚙️ Core</span>
+              <div class="status-indicator active" id="animationStatus"></div>
+            </div>
+            <div class="control-grid">
+              <div class="control-group">
+                <label for="animationMode">Animation Mode</label>
+                <select id="animationMode" class="compact-select">
+                  <option value="depth">Depth Mapping</option>
+                  <option value="content" selected>Content</option>
+                </select>
+              </div>
+              <div class="control-group">
+                <label for="backgroundMode">Background Mode</label>
+                <select id="backgroundMode" class="compact-select">
+                  <option value="static">Static</option>
+                  <option value="dynamic" selected>Dynamic</option>
+                  <option value="mixed">Mixed</option>
+                </select>
+              </div>
+              <div class="control-group">
+                <label for="movementDirection">Direction</label>
+                <select id="movementDirection" class="compact-select">
+                  <option value="vertical">↕ Vertical</option>
+                  <option value="horizontal">↔ Horizontal</option>
+                </select>
+              </div>
+              <div class="control-group">
+                <label for="animationSpeed">Speed</label>
+                <input type="number" id="animationSpeed" value="1" step="0.5" min="0.1" max="20" class="compact-input">
+              </div>
+              <div class="control-group">
+                <label for="rotationSpeed">Rotation (deg/s)</label>
+                <input type="number" id="rotationSpeed" value="0" step="5" class="compact-input">
+              </div>
+              <div class="control-group">
+                <label for="scaleFactor">Scale (1 = 100%)</label>
+                <input type="range" id="scaleFactor" min="0.125" max="8" step="0.01" value="1">
+                <span class="slider-value" id="scaleValue">1.00</span>
+              </div>
+              
+              <div class="control-group">
+                <label class="modern-checkbox">
+                  <input type="checkbox" id="depthScalingToggle">
+                  <span class="checkbox-mark"></span>
+                  <span class="checkbox-text">Depth-Driven Speed</span>
+                </label>
+                <div class="small-text" style="margin-top: 4px;">Speed varies with depth (Content mode)</div>
+              </div>
+              
+              <div class="control-group">
+                <label for="waveStrength">Wave Distortion</label>
+                <input type="range" id="waveStrength" min="0" max="50" step="1" value="0">
+                <span class="slider-value" id="waveStrengthValue">0</span>
+              </div>
+              <div class="control-group">
+                <label for="pathType">Path Type</label>
+                <select id="pathType" class="compact-select">
+                  <option value="none">None</option>
+                  <option value="circle">Circle</option>
+                  <option value="figure8">Figure-8</option>
+                </select>
+              </div>
+              <div class="control-group">
+                <label for="pathSpeed">Path Speed</label>
+                <input type="number" id="pathSpeed" value="0" step="0.5" class="compact-input">
+              </div>
+              <div class="control-group">
+                <label for="speckleSize">Speckle</label>
+                <input type="number" id="speckleSize" value="2" min="1" max="20" class="compact-input">
+              </div>
+            </div>
+          </div>
+
+          <!-- Center Panel: Noise Settings -->
+          <div class="control-panel noise-settings">
+            <div class="panel-header">
+              <span class="panel-title">🔵 Noise</span>
+            </div>
+            <div class="slider-grid">
+              <div class="slider-control">
+                <label for="backgroundDensity">Background</label>
+                <div class="slider-wrapper">
+                  <input type="range" id="backgroundDensity" value="50" min="0" max="100">
+                  <span class="slider-value" id="backgroundDensityValue">50%</span>
+                </div>
+              </div>
+              <div class="slider-control">
+                <label for="foregroundDensity">Foreground</label>
+                <div class="slider-wrapper">
+                  <input type="range" id="foregroundDensity" value="50" min="0" max="100">
+                  <span class="slider-value" id="foregroundDensityValue">50%</span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="control-group">
+              <label for="noiseType">Noise Type</label>
+              <select id="noiseType" class="compact-select">
+                <option value="binary">Binary (black and white)</option>
+                <option value="perlin">Perlin Noise</option>
+                <option value="gradient">Gradient Noise</option>
+                <option value="colourful">Colourful Noise</option>
+                <option value="dynamic">Dynamic Texture</option>
+              </select>
+            </div>
+
+            <!--Noise Parameters-->
+            <div id="noiseParametersContainer">
+
+              <div id="perlinParameters" class="noise-parameters-group" style="display:none">
+                <div class="control-group">
+                  <label for="perlinFrequency">Frequency</label>
+                  <div class="slider-wrapper">
+                    <input type="range" id="perlinFrequency" min="0.01" max="0.2" step="0.005" value="0.05">
+                    <span class="slider-value" id="perlinFrequencyValue">0.05</span>
+                  </div>
+                </div>
+                <div class="control-group">
+                  <label for="perlinAmplitude">Amplitude</label>
+                  <div class="slider-wrapper">
+                    <input type="range" id="perlinAmplitude" min="0" max="255" step="1" value="128">
+                    <span class="slider-value" id="perlinAmplitudeValue">128</span>
+                  </div>
+                </div>
+                <div class="control-group">
+                  <label for="perlinOctaves">Octaves</label>
+                  <input type="range" id="perlinOctaves" min="1" max="8" step="1" value="3">
+                </div>
+                <div class="control-group">
+                  <label for="perlinPersistence">Persistence</label>
+                  <div class="slider-wrapper">
+                    <input type="range" id="perlinPersistence" min="0" max="1" step="0.05" value="0.5">
+                    <span class="slider-value" id="perlinPersistenceValue">0.5</span>
+                  </div>
+                </div>
+              </div>
+
+              <div id="gradientParameters" class="noise-parameters-group" style="display:none;">
+                <div class="control-group">
+                  <label for="gradientDirection">Direction</label>
+                  <select id="gradientDirection" class="compact-select">
+                    <option value="horizontal">Horizontal</option>
+                    <option value="vertical">Vertical</option>
+                    <option value="diagonal">Diagonal</option>
+                  </select>
+                </div>
+                <div class="control-group">
+                  <label for="gradientMin">Min Value</label>
+                  <div class="slider-wrapper">
+                    <input type="range" id="gradientMin" min="0" max="255" value="0">
+                    <span class="slider-value" id="gradientMinValue">0</span>
+                  </div>
+                </div>
+                <div class="control-group">
+                  <label for="gradientMax">Max Value</label>
+                  <div class="slider-wrapper">
+                    <input type="range" id="gradientMax" min="0" max="255" value="255">
+                    <span class="slider-value" id="gradientMaxValue">255</span>
+                  </div>
+                </div>
+              </div>
+
+              <div id="colourfulParameters" class="noise-parameters-group" style="display: none;">
+                <div class="control-group">
+                  <label for="colourfulDensity">Density</label>
+                  <div class="slider-wrapper">
+                    <input type="range" id="colourfulDensity" min="0" max="100" value="50">
+                    <span class="slider-value" id="colourfulDensityValue">50%</span>
+                  </div>
+                  <div class="small-text">Probability of generating a random colour per pixel</div>
+                </div>
+              </div>
+              
+              <div id="dynamicParameters" class="noise-parameters-group" style="display: none;">
+                <div class="control-group">
+                  <label for="dynamicFrequencyX">Frequency X</label>
+                  <input type="range" id="dynamicFrequencyX" min="0.005" max="0.2" step="0.005" value="0.02">
+                </div>
+                <div class="control-group">
+                  <label for="dynamicFrequencyY">Frequency Y</label>
+                  <input type="range" id="dynamicFrequencyY" min="0.005" max="0.2" step="0.005" value="0.02">
+                </div>
+                <div class="control-group">
+                  <label for="dynamicSpeed">Time Speed</label>
+                  <input type="range" id="dynamicSpeed" min="0" max="5" step="0.1" value="1.0">
+                </div>
+                <div class="control-group">
+                  <label for="dynamicAmplitude">Amplitude</label>
+                  <input type="range" id="dynamicAmplitude" min="0" max="255" value="128">
+                </div>
+              </div>
+            
+            </div>
+            
+            <div class="control-group">
+              <label for="foregroundColorMode">Foreground Color Mode</label>
+              <select id="foregroundColorMode" class="compact-select">
+                <option value="grayscale">Grayscale</option>
+                <option value="hsl">HSL</option>
+                <option value="gradient">Gradient Map</option>
+              </select>
+            </div>
+
+            <div id="foregroundHslControls" style="display: none;">
+              <div class="control-group">
+                <label for="foregroundHue">Hue</label>
+                <input type="range" id="foregroundHue" min="0" max="360" step="1" value="0">
+                <span class="slider-value" id="foregroundHueValue">0</span>
+              </div>
+              <div class="control-group">
+                <label for="foregroundSat">Saturation</label>
+                <input type="range" id="foregroundSat" min="0" max="100" step="1" value="100">
+                <span class="slider-value" id="foregroundSatValue">100</span>
+              </div>
+              <div class="control-group">
+                <label for="foregroundLight">Lightness</label>
+                <input type="range" id="foregroundLight" min="0" max="100" step="1" value="50">
+                <span class="slider-value" id="foregroundLightValue">50</span>
+              </div>
+            </div>
+
+            <div id="gradientMapControls" style="display: none;">
+              <div class="control-group">
+                <label for="gradStart">Gradient Start</label>
+                <input type="color" id="gradStart" value="#0000ff">
+              </div>
+              <div class="control-group">
+                <label for="gradEnd">Gradient End</label>
+                <input type="color" id="gradEnd" value="#ff0000">
+              </div>
+            </div>
+
+            <div class="control-group">
+              <label for="blendMode">Blend Mode</label>
+              <select id="blendMode" class="compact-select">
+                <option value="normal">Normal</option>
+                <option value="multiply">Multiply</option>
+                <option value="screen">Screen</option>
+                <option value="overlay">Overlay</option>
+              </select>
+            </div>
+            
+            <div class="checkbox-row">
+              <label class="modern-checkbox">
+                <input type="checkbox" id="removeBackgroundNoise">
+                <span class="checkbox-mark"></span>
+                <span class="checkbox-text">Solid Background</span>
+              </label>
+              <div id="backgroundColorGroup" class="color-controls">
+                <input type="color" id="backgroundColor" value="#ffffff" class="modern-color-input">
+                <div id="depthThresholdGroup" class="depth-control">
+                  <label for="depthThreshold">Cutoff</label>
+                  <div class="mini-slider">
+                    <input type="range" id="depthThreshold" value="5" min="0" max="100">
+                    <span class="mini-value" id="depthThresholdValue">5</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Panel: Playback Controls -->
+          <div class="control-panel playback-controls">
+            <div class="panel-header">
+              <span class="panel-title">▶️ Playback</span>
+            </div>
+            <div class="playback-grid">
+              <button id="canvasPauseButton" class="modern-btn pause-btn">
+                <span class="btn-icon">⏸</span>
+                <span>Pause</span>
+              </button>
+              <div class="record-section">
+                <div class="record-input">
+                  <label for="recordDuration">Duration</label>
+                  <div class="input-unit">
+                    <input type="number" id="recordDuration" value="5" min="1" max="60" class="compact-input">
+                    <span class="unit">sec</span>
+                  </div>
+                </div>
+                <button id="recordButton" class="modern-btn record-btn">
+                  <span class="btn-icon">●</span>
+                  <span>Record</span>
+                  <div class="record-indicator" id="recordingStatus"></div>
+                </button>
+              </div>
+              <div class="quick-export-section" style="display:flex; align-items:center; gap:0.5rem; margin-top:0.75rem;">
+                <div class="record-input" style="flex:1;">
+                  <label for="quickExportDuration">Quick Export</label>
+                  <select id="quickExportDuration" class="compact-select">
+                    <option value="5">5s</option>
+                    <option value="10" selected>10s</option>
+                    <option value="15">15s</option>
+                    <option value="20">20s</option>
+                    <option value="30">30s</option>
+                  </select>
+                </div>
+                <button id="quickExportButton" class="modern-btn export-btn" style="min-width:100px;">
+                  <span class="btn-icon">⚡</span>
+                  <span>Quick Export</span>
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Down Panel: Keyframe Controls -->
+          <div class="control-panel keyframe-controls" style="grid-column: 1 / -1;">
+            <div class="panel-header">
+              <span class="panel-title">🎬 Keyframe Animation</span>
+            </div>
+            <div class="control-group">
+              <label for="keyframeParam">Animate Parameter</label>
+              <select id="keyframeParam" class="compact-select">
+                <option value="speed">Speed</option>
+                <option value="rotation">Rotation</option>
+                <option value="scale">Scale</option>
+              </select>
+            </div>
+            <div class="control-group">
+              <label for="keyframeStart">Start Value</label>
+              <input type="number" id="keyframeStart" value="0" step="0.1" class="compact-input">
+            </div>
+            <div class="control-group">
+              <label for="keyframeEnd">End Value</label>
+              <input type="number" id="keyframeEnd" value="1" step="0.1" class="compact-input">
+            </div>
+            <div class="control-group">
+              <label for="keyframeDuration">Duration (sec)</label>
+              <input type="number" id="keyframeDuration" value="5" step="1" class="compact-input">
+            </div>
+            <div class="control-group">
+              <label for="keyframeLoop">Loop</label>
+              <input type="checkbox" id="keyframeLoop">
+            </div>
+            <button id="applyKeyframe" class="modern-btn" style="margin-top: 0.5rem;">Apply Keyframe</button>
+          </div>
+          
+        </div>
+
+      <!-- Batch Processing Section -->
+      <div class="control-panel batch-processing" style="grid-column: 1 / -1; margin-top: 0.5rem;">
+        <div class="panel-header">
+          <span class="panel-title">📦 Batch Export (Pipeline)</span>
+        </div>
+        <div class="batch-controls" style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end;">
+          <div class="control-group" style="flex: 2; min-width: 200px;">
+            <label for="batchImageInput">Select multiple images</label>
+            <input type="file" id="batchImageInput" accept="image/*" multiple>
+          </div>
+          <div class="control-group">
+            <label>Batch Mode</label>
+            <select id="batchMode" class="compact-select">
+              <option value="content">Content mode (replace foreground)</option>
+              <option value="depth">Depth mode (replace depth map)</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <label>Duration</label>
+            <select id="batchDuration" class="compact-select">
+              <option value="3">3s</option>
+              <option value="5">5s</option>
+              <option value="10" selected>10s</option>
+              <option value="15">15s</option>
+            </select>
+          </div>
+          <button id="batchExportButton" class="modern-btn" style="background: #9c27b0; color: #fff;">
+            <span class="btn-icon">⚙️</span>
+            <span>Start Batch Export</span>
+          </button>
+        </div>
+        <div id="batchProgressContainer" style="display: none; margin-top: 0.75rem;">
+          <div style="background: #333; border-radius: 4px; height: 8px; overflow: hidden;">
+            <div id="batchProgressBar" style="background: #ce93d8; height: 100%; width: 0%;"></div>
+          </div>
+          <small id="batchProgressText" style="color: #ccc; display: block; margin-top: 4px;"></small>
+        </div>
+      </div>
+      </div>
+
+      <!-- Quick MP4 Export (using local ffmpeg.wasm) -->
+      <div class="quick-export-section" style="display:flex; flex-wrap:wrap; gap:0.5rem; margin-top:0.75rem;">
+        <div class="record-input" style="flex:1; min-width:120px;">
+          <label for="hqExportDuration">🎥 MP4 Export (PNG→ffmpeg)</label>
+          <select id="hqExportDuration" class="compact-select">
+            <option value="3">3s</option>
+            <option value="5">5s</option>
+            <option value="10" selected>10s</option>
+          </select>
+        </div>
+        <button id="hqExportButton" class="modern-btn export-btn" style="min-width:100px;">
+          <span class="btn-icon">🎬</span>
+          <span>Export HQ</span>
+        </button>
+        <div id="hqProgressContainer" style="display:none; width:100%; margin-top:0.5rem;">
+          <div style="background:#333; border-radius:4px; height:8px; overflow:hidden;">
+            <div id="hqProgressBar" style="background:#4fc3f7; height:100%; width:0%; transition:width 0.2s;"></div>
+          </div>
+          <small id="hqProgressText" style="color:#aaa; display:block; margin-top:4px;">Exporting... 0%</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden elements -->
+  <video id="depthVideo" style="display: none;" loop muted></video>
+
+  <script type="module" src="./assets/js/main.js"></script>
+</body>
+</html> 
