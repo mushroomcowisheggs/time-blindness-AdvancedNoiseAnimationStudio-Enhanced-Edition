@@ -978,3 +978,43 @@ if (batchBtn && !batchBtn._batchBound) {
         await batchExportImages(files, mode, duration);
     });
 }
+
+// Helper: write a dataURL frame into FFmpeg's virtual FS
+async function writeFrameToFFmpeg(dataURL, index) {
+    if (!ffmpegInstance) throw new Error('FFmpeg not initialized');
+    const name = `/input/frame${String(index).padStart(5, '0')}.png`;
+    try {
+        const resp = await fetch(dataURL);
+        const ab = await resp.arrayBuffer();
+        const uint8 = new Uint8Array(ab);
+        if (typeof ffmpegInstance.FS === 'function') {
+            ffmpegInstance.FS('writeFile', name, uint8);
+        } else if (typeof ffmpegInstance.writeFile === 'function') {
+            await ffmpegInstance.writeFile(name, uint8);
+        } else {
+            throw new Error('No FS write API available on ffmpegInstance');
+        }
+    } catch (e) {
+        console.error('Failed to write frame to FFmpeg FS:', e);
+        throw e;
+    }
+}
+
+// Helper: read an output file from FFmpeg's FS and return a Blob
+async function readOutputFile(path) {
+    if (!ffmpegInstance) throw new Error('FFmpeg not initialized');
+    try {
+        let data;
+        if (typeof ffmpegInstance.FS === 'function') {
+            data = ffmpegInstance.FS('readFile', `/output/${path}`);
+        } else if (typeof ffmpegInstance.readFile === 'function') {
+            data = await ffmpegInstance.readFile(`/output/${path}`);
+        } else {
+            throw new Error('No FS read API available on ffmpegInstance');
+        }
+        return new Blob([data], { type: path.endsWith('.mp4') ? 'video/mp4' : 'application/octet-stream' });
+    } catch (e) {
+        console.error('Failed to read output file from FFmpeg FS:', e);
+        throw e;
+    }
+}
