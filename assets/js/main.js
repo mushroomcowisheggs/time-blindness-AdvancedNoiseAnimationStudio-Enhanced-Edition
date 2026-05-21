@@ -452,29 +452,9 @@ let ffmpegInstance = null;
 let ffmpegLoading = false;
 let ffmpegLoaded = false;
 
-// Helper to attempt to unload FFmpeg instance to free WASM memory (best-effort).
-async function unloadFFmpeg() {
-    try {
-        if (ffmpegInstance) {
-            if (typeof ffmpegInstance.exit === 'function') {
-                await ffmpegInstance.exit();
-            }
-            // Some builds expose a destroy or close method
-            if (typeof ffmpegInstance.destroy === 'function') {
-                ffmpegInstance.destroy();
-            }
-        }
-    } catch (e) {
-        console.warn('FFmpeg unload warning:', e);
-    } finally {
-        ffmpegInstance = null;
-        ffmpegLoaded = false;
-        ffmpegLoading = false;
-        // give JS a tick to allow GC on released resources
-        await new Promise(r => setTimeout(r, 50));
-    }
-}
-
+// Keep a single FFmpeg instance for the batch export lifetime to avoid
+// re-instantiation (which commonly triggers WASM OOM in browsers).
+// Only use FFmpeg for Batch Export
 async function loadFFmpeg() {
     if (ffmpegLoaded) return;
     if (ffmpegLoading) {
@@ -495,25 +475,11 @@ async function loadFFmpeg() {
         await ensureDirectoryEmpty('/input');
     } catch (e) {
         console.error('Failed to load FFmpeg:', e);
-        alert('Failed to load FFmpeg. Check that @ffmpeg/core is installed.');
+        alert('Failed to load FFmpeg.wasm. This may be due to browser WASM memory limits. Try smaller batch sizes or run encoding on a native/server FFmpeg.');
+        throw e;
     } finally {
         ffmpegLoading = false;
     }
-}
-
-async function writeFrameToFFmpeg(base64, index) {
-    const data = base64.split(',')[1];
-    const binary = atob(data);
-    // create chunked Uint8Array to avoid large contiguous allocations
-    const len = binary.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
-    await ffmpegInstance.writeFile(`/input/frame${String(index).padStart(5, '0')}.png`, bytes);
-}
-
-async function readOutputFile(filename) {
-    const data = await ffmpegInstance.readFile(`/output/${filename}`);
-    return new Blob([data.buffer], { type: 'video/mp4' });
 }
 
 async function removeDirContents(path) {
@@ -541,6 +507,31 @@ async function ensureDirectoryEmpty(path) {
     } catch (e) {
         // Ignore if the directory already exists.
     }
+}
+
+// Attempt to fully unload FFmpeg.wasm to free WASM heap between chunks.
+async function unloadFFmpeg() {
+    if (!ffmpegInstance) return;
+    try {
+        // remove any files to reduce FS memory held by the module
+        await removeDirContents('/output');
+        await removeDirContents('/input');
+    } catch (e) {
+        // ignore
+    }
+    try {
+        if (typeof ffmpegInstance.exit === 'function') {
+            await ffmpegInstance.exit();
+        } else if (typeof ffmpegInstance.close === 'function') {
+            await ffmpegInstance.close();
+        }
+    } catch (e) {
+        console.warn('FFmpeg unload failed:', e);
+    }
+    ffmpegInstance = null;
+    ffmpegLoaded = false;
+    // yield to event loop to give GC a chance
+    await new Promise(r => setTimeout(r, 50));
 }
 
 // Reliable seek: waits for 'seeked' event and verifies frame is ready
@@ -874,8 +865,13 @@ async function batchExportImages(images, mode, durationSeconds) {
 
     if (!originalIsPaused) controller.pause();
 
-    const CHUNK_RELOAD = 5; // reload FFmpeg every N files to avoid WASM heap growth
-    for (let i = 0; i < total; i++) {
+    // Chunking: process in batches to reduce memory pressure and allow user control.
+    const CHUNK_SIZE = 25; // default files per chunk (tunable)
+    const numChunks = Math.ceil(total / CHUNK_SIZE);
+    for (let chunkIndex = 0; chunkIndex < numChunks; chunkIndex++) {
+        const start = chunkIndex * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, total);
+        for (let i = start; i < end; i++) {
         const file = images[i];
         const percent = Math.round((i / total) * 100);
         progressBar.style.width = percent + '%';
@@ -918,17 +914,22 @@ async function batchExportImages(images, mode, durationSeconds) {
             progressText.innerText = `Failed: ${file.name}`;
         }
 
-        // Periodically unload and reload FFmpeg to free WASM memory and avoid "memory access out of bounds"
-        const isLast = (i === total - 1);
-        if (!isLast && ((i + 1) % CHUNK_RELOAD === 0)) {
-            progressText.innerText = `Recycling FFmpeg memory (processed ${i+1}/${total})`;
+        // continue to next file; we keep the FFmpeg instance alive for the whole batch
+        }
+
+        // After finishing this chunk, automatically continue to the next chunk.
+        // To mitigate WASM heap pressure we attempt to fully unload and reload
+        // the FFmpeg instance between chunks (if the environment supports it).
+        if (chunkIndex < numChunks - 1) {
             try {
                 await unloadFFmpeg();
+                // short pause to let the engine tear down
+                await new Promise(r => setTimeout(r, 100));
+                await loadFFmpeg();
             } catch (e) {
-                console.warn('Error unloading FFmpeg between files:', e);
+                console.warn('Failed to reload FFmpeg between chunks:', e);
+                // if reload fails, continue with the existing instance (if any)
             }
-            // reload for next file
-            await loadFFmpeg();
         }
     }
 
