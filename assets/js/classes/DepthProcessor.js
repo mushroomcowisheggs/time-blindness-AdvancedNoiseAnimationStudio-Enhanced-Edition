@@ -77,7 +77,11 @@ export default class DepthProcessor {
             this.depthVideo.load();
         }
         this.depthVideo = document.getElementById('depthVideo') || document.createElement('video');
-        this.depthVideo.muted = true;
+        if (typeof window !== 'undefined' && typeof window.depthAudioMuted !== 'undefined') {
+            this.depthVideo.muted = window.depthAudioMuted;
+        } else {
+            this.depthVideo.muted = true;
+        }
         this.depthVideo.loop = true;
         this.depthVideo.preload = 'auto';
         this.depthVideo.src = URL.createObjectURL(file);

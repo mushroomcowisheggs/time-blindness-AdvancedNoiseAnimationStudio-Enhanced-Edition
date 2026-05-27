@@ -50,6 +50,8 @@ export default class AnimationController {
         this.keyframeStartTime = null;
         
         this.depthVideoSyncBaseTime = null;
+        this.pauseTimestamp = null;
+        this._depthVideoWasPlayingBeforePause = false;
         
         this.shapeMoveEnabled = false;
         this.contentX = this.width / 2;
@@ -406,22 +408,25 @@ export default class AnimationController {
         }
         
         if (this.isDepthAnimationMode && this.depthProcessor.depthSource === 'video') {
-        const video = this.depthProcessor.depthVideo;
-        if (video && video.readyState >= 2 && video.duration && isFinite(video.duration)) {
-            if (this.depthVideoSyncBaseTime === null) {
-                this.depthVideoSyncBaseTime = timestamp;
-                const targetTime = elapsedSeconds % video.duration;
-                if (Math.abs(video.currentTime - targetTime) > 0.1) {
-                    video.currentTime = targetTime;
-                }
-                video.play().catch(e => console.warn);
-            } else {
-                if (video.paused) {
-                    video.play().catch(e => console.warn);
+            const video = this.depthProcessor.depthVideo;
+            if (video && video.readyState >= 2 && video.duration && isFinite(video.duration)) {
+                const shouldPlay = this._depthVideoWasPlayingBeforePause || (typeof window !== 'undefined' && !!window._depthVideoWasPlaying);
+                if (this.depthVideoSyncBaseTime === null) {
+                    this.depthVideoSyncBaseTime = timestamp;
+                    const targetTime = elapsedSeconds % video.duration;
+                    if (Math.abs(video.currentTime - targetTime) > 0.1) {
+                        video.currentTime = targetTime;
+                    }
+                    if (shouldPlay) {
+                        video.play().catch(e => console.warn(e));
+                    }
+                } else {
+                    if (shouldPlay && video.paused) {
+                        video.play().catch(e => console.warn(e));
+                    }
                 }
             }
         }
-    }
         
         const currentDepthData = this.depthProcessor.getCurrentDepthData();
         
@@ -449,15 +454,31 @@ export default class AnimationController {
             cancelAnimationFrame(this.animationFrameId);
             this.animationFrameId = null;
         }
+        this.pauseTimestamp = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        const video = this.depthProcessor && this.depthProcessor.depthVideo;
+        if (video && typeof video.paused === 'boolean') {
+            this._depthVideoWasPlayingBeforePause = !video.paused;
+        } else if (typeof window !== 'undefined') {
+            this._depthVideoWasPlayingBeforePause = !!window._depthVideoWasPlaying;
+        } else {
+            this._depthVideoWasPlayingBeforePause = false;
+        }
     }
     
     resume() {
         if (this.isPaused) {
             this.isPaused = false;
+            if (this.pauseTimestamp && this.startTime) {
+                const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+                const pausedDuration = now - this.pauseTimestamp;
+                this.startTime += pausedDuration;
+            }
+            this.pauseTimestamp = null;
             this.depthVideoSyncBaseTime = null;   // Force re-sync on resume
             this.animationFrameId = requestAnimationFrame(this._boundAnimate);
         }
     }
+
     
     setAnimationMode(mode) {
         this.animationMode = mode;

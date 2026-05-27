@@ -323,12 +323,26 @@ document.getElementById('depthThreshold').addEventListener('input', (e) => {
 
 // Pause
 function togglePause() {
+    const depthVideo = depthProcessor && depthProcessor.depthVideo ? depthProcessor.depthVideo : null;
     if (controller.isPaused) {
         controller.resume();
         document.querySelector('#canvasPauseButton span:not(.btn-icon)').textContent = 'Pause';
         document.querySelector('#canvasPauseButton .btn-icon').textContent = '⏸';
         document.getElementById('animationStatus').classList.add('active');
+        // resume depth video only if it was playing before pause
+        try {
+            if (depthVideo && window._depthVideoWasPlaying) {
+                depthVideo.play().catch(() => {});
+            }
+        } catch (e) {}
+        window._depthVideoWasPlaying = false;
     } else {
+        // remember whether depth video was playing so we can restore on resume
+        try {
+            window._depthVideoWasPlaying = !!(depthVideo && !depthVideo.paused && !depthVideo.ended);
+            if (depthVideo) depthVideo.pause();
+        } catch (e) { window._depthVideoWasPlaying = false; }
+        
         controller.pause();
         document.querySelector('#canvasPauseButton span:not(.btn-icon)').textContent = 'Resume';
         document.querySelector('#canvasPauseButton .btn-icon').textContent = '▶';
@@ -445,6 +459,32 @@ document.getElementById('contentStatus').classList.add('active');
 // Trigger UI linkage based on default animation mode
 document.getElementById('animationMode').dispatchEvent(new Event('change'));
 noiseGen.refresh('content', 'vertical');
+
+// Depth audio toggle (playback only). Default: muted
+window.depthAudioMuted = true;
+const depthAudioBtn = document.getElementById('depthAudioToggle');
+function updateDepthAudioButton() {
+    if (!depthAudioBtn) return;
+    const icon = depthAudioBtn.querySelector('.btn-icon');
+    const label = depthAudioBtn.querySelector('span:last-child');
+    if (window.depthAudioMuted) {
+        if (icon) icon.textContent = '🔇';
+        if (label) label.textContent = 'Muted';
+    } else {
+        if (icon) icon.textContent = '🔊';
+        if (label) label.textContent = 'Unmuted';
+    }
+}
+if (depthAudioBtn) {
+    updateDepthAudioButton();
+    depthAudioBtn.addEventListener('click', () => {
+        window.depthAudioMuted = !window.depthAudioMuted;
+        try {
+            if (depthProcessor && depthProcessor.depthVideo) depthProcessor.depthVideo.muted = window.depthAudioMuted;
+        } catch (e) {}
+        updateDepthAudioButton();
+    });
+}
 
 // === High‑quality MP4 export (offscreen canvas + local ffmpeg.wasm) ===
 
