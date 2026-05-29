@@ -1,5 +1,4 @@
 // assets/js/classes/NoiseGenerator.js
-import PerlinNoise from "./PerlinNoise.js";
 import NoiseStrategyBase from './NoiseStrategyBase.js';
 import NoiseStrategyBinary from './NoiseStrategyBinary.js';
 import NoiseStrategyPerlin from './NoiseStrategyPerlin.js';
@@ -11,7 +10,6 @@ export default class NoiseGenerator {
     constructor(width, height) {
         this.width = width;
         this.height = height;
-        this.perlin = new PerlinNoise();
 
         this.noiseType = 'binary';
         this.speckleSize = 2;
@@ -26,7 +24,7 @@ export default class NoiseGenerator {
         this.dynamicFrequencyY = 0.02;
         this.dynamicSpeed = 1.0;
         this.dynamicAmplitude = 128;
-        this.perlinFrequency = 0.05;
+        this.perlinFrequency = 0.1;
         this.perlinAmplitude = 128;
         this.perlinOctaves = 3;
         this.perlinPersistence = 0.5;

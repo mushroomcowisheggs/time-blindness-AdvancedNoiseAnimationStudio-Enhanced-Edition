@@ -151,7 +151,6 @@ classes/
 ├── NoiseStrategyGradient.js
 ├── NoiseStrategyColourful.js
 ├── NoiseStrategyDynamic.js
-├── PerlinNoise.js           # core Perlin implementation
 ├── ContentRenderer.js       # foreground mask & transformations
 ├── DepthProcessor.js        # depth map loading & frame extraction
 ├── ColorMapper.js           # color conversion & blending
