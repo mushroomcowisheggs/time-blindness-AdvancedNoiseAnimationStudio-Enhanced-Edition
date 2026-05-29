@@ -138,19 +138,44 @@ All classes reside in `assets/js/classes/`:
 
 ```
 classes/
-├── AnimationController.js   # main loop, mode switching, blending
+├── AnimationController.js   # thin scheduler, delegates rendering to RenderEngine
+├── RenderEngine.js          # pure rendering (depth & content modes)
+├── MotionState.js           # mutable animation state (offsets, positions)
+├── AnimationState.js        # single source of truth for UI parameters (EventBus)
+├── EventBus.js              # pub/sub for state changes
+├── Scheduler.js             # bridges AnimationState and AnimationController
+├── NoiseGenerator.js        # strategy dispatcher
+├── NoiseStrategyBase.js     # base class for noise strategies
+├── NoiseStrategyBinary.js
+├── NoiseStrategyPerlin.js
+├── NoiseStrategyGradient.js
+├── NoiseStrategyColourful.js
+├── NoiseStrategyDynamic.js
+├── PerlinNoise.js           # core Perlin implementation
 ├── ContentRenderer.js       # foreground mask & transformations
 ├── DepthProcessor.js        # depth map loading & frame extraction
-├── NoiseGenerator.js        # all noise algorithms + background/foreground fields
-└── PerlinNoise.js           # independent Perlin implementation
+├── ColorMapper.js           # color conversion & blending
+├── ExportService.js         # MP4 export (FFmpeg / MediaRecorder)
+├── FFmpegService.js         # wraps @ffmpeg/ffmpeg
+├── BatchProcessor.js        # batch processing for images/videos
+└── UIController.js          # all DOM event bindings (no business logic)
 ```
 
 **Dependency flow** (no circular imports):
-- `main.js` instantiates the four top‑level components and wires UI events.
-- `AnimationController` holds references to the other three and calls their methods.
-- `utils.js` provides pure colour conversion/blending functions.
 
-To add a new noise type, extend `NoiseGenerator.generateNoiseMap()` and add UI sliders in the HTML. To change blending, modify `AnimationController._renderContentMode()`.
+- `main.js` instantiates core components (`NoiseGenerator`, `ContentRenderer`, `DepthProcessor`, `AnimationController`), creates services (`FFmpegService`, `ExportService`, `BatchProcessor`, `Scheduler`), and finally initialises `UIController`.
+- `UIController` listens to DOM events and updates `AnimationState` via `EventBus`.
+- `AnimationState` broadcasts changes; `Scheduler` and `main.js` react by updating the controller or other components.
+- `AnimationController` owns `RenderEngine` and `MotionState`; it drives the animation loop and calls `RenderEngine` to draw.
+- `RenderEngine` reads `MotionState` and uses `ColorMapper`, `NoiseGenerator`, `ContentRenderer`, `DepthProcessor` to generate each frame.
+- `ExportService` uses `RenderEngine` directly (without touching the live canvas) to produce MP4 files.
+- `BatchProcessor` orchestrates multiple exports, handles state snapshots, and cleans up resources between iterations.
+
+**Adding a new noise type**:  
+Create a new class extending `NoiseStrategyBase`, implement `generateNoiseMap()` and `refresh()`, then register it in `NoiseGenerator._strategies`. Add corresponding UI sliders in the HTML.
+
+**Changing blending behaviour**:  
+Modify `ColorMapper.blendPixel()` or extend `RenderEngine._renderContentMode()` / `_renderDepthMode()` if new blending modes require context-specific logic.
 
 ---
 
