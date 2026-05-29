@@ -97,6 +97,7 @@ export default class AnimationController {
         const fakeNow = timestamp;
         const elapsedSeconds = (fakeNow - (this.startTime || fakeNow)) / 1000;
         const deltaSeconds = 0; // single-frame render, delta not meaningful
+        this.updateMotionStateForElapsed(elapsedSeconds, deltaSeconds, timestamp);
         this.renderEngine.renderToContext(ctx, this, this.motionState, fakeNow, deltaSeconds, elapsedSeconds);
         try {
             return ctx.getImageData(0, 0, w, h);
@@ -180,20 +181,10 @@ export default class AnimationController {
         this.lastTimestamp = timestamp;
         
         this._updateKeyframes(timestamp);
+        this.updateMotionStateForElapsed(elapsedSeconds, deltaSeconds, timestamp);
         
         if (this.noiseGenerator.noiseType === 'dynamic') {
             this.noiseGenerator.refresh(this.animationMode, this.movementDirection);
-        }
-        
-        if (this.animationMode === 'content' && this.pathType !== 'none') {
-            this.motionState.pathAngle += this.pathSpeed * deltaSeconds;
-            this.motionState.pathAngle %= (2 * Math.PI);
-            this._updatePath();
-        }
-        
-        if (this.animationMode === 'content' && this.contentRenderer.contentType === 'shape' && this.pathType === 'none') {
-            this._updateShapeMovement(deltaSeconds);
-            this.contentRenderer.markDirty();
         }
         
         if (this.isDepthAnimationMode && this.depthProcessor.depthSource === 'video') {

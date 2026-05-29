@@ -320,6 +320,26 @@
                     <span class="slider-value" id="gradientMaxValue">255</span>
                   </div>
                 </div>
+                
+                <!-- Raw gradient values toggle (Content Mode) -->
+                <div class="control-group" id="gradientRawGroup">
+                  <label class="modern-checkbox">
+                    <input type="checkbox" id="gradientRawToggle">
+                    <span class="checkbox-mark"></span>
+                    <span class="checkbox-text">Use Raw Gradient Values (disable binarization in Content Mode)</span>
+                  </label>
+                  <div class="small-text">When enabled, Content Mode will use continuous gradient values (same as Depth Mode), making Min/Max effective.</div>
+                </div>
+                
+                <!-- Unified gradient range toggle (Depth Mode) -->
+                <div class="control-group" id="unifiedGradientGroup">
+                  <label class="modern-checkbox">
+                    <input type="checkbox" id="unifiedGradientToggle">
+                    <span class="checkbox-mark"></span>
+                    <span class="checkbox-text">Unified Gradient Range (Depth mode uses full canvas gradient)</span>
+                  </label>
+                  <div class="small-text">When enabled, depth mode applies gradient noise to all pixels, ignoring depth threshold for color range.</div>
+                </div>
               </div>
 
               <div id="colourfulParameters" class="noise-parameters-group" style="display: none;">

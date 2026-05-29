@@ -231,7 +231,8 @@ export default class UIController {
         const depthStatus = document.getElementById('depthStatus'); if (depthStatus) depthStatus.classList.add('active');
         const contentStatus = document.getElementById('contentStatus'); if (contentStatus) contentStatus.classList.add('active');
         document.getElementById('animationMode').dispatchEvent(new Event('change'));
-        if (this.noiseGen) this.noiseGen.refresh('content', 'vertical');
+        document.getElementById('noiseType').dispatchEvent(new Event('change'));
+        if (this.noiseGen) { this.noiseGen.refresh('content', 'vertical'); }
 
         // Depth audio toggle (playback only). Default: muted
         window.depthAudioMuted = true;

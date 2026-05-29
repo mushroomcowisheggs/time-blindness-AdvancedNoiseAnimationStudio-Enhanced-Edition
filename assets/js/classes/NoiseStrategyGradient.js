@@ -25,13 +25,27 @@ export default class NoiseStrategyGradient extends NoiseStrategyBase {
         const size = this.g.width * this.g.height;
         this.g.noiseField = this.generateNoiseMap();
         this.g._makeSeamless(this.g.noiseField, movementDirection);
+
         this.g.backgroundNoise = new Array(size);
         this.g.foregroundNoise = new Array(size);
+
+        const useRaw = this.g.gradientRawMode;   // User choice from generator
+
         for (let i = 0; i < size; i++) {
             const gray = this.g.noiseField[i];
-            this.g.backgroundNoise[i] = (gray / 255) >= this.g.backgroundDensity ? 255 : 0;
-            this.g.foregroundNoise[i] = (gray / 255) >= this.g.foregroundDensity ? 255 : 0;
+            if (useRaw) {
+                this.g.backgroundNoise[i] = gray;
+                this.g.foregroundNoise[i] = gray;
+            } else {
+                this.g.backgroundNoise[i] = (gray / 255) >= this.g.backgroundDensity ? 255 : 0;
+                this.g.foregroundNoise[i] = (gray / 255) >= this.g.foregroundDensity ? 255 : 0;
+            }
         }
-        return { noiseField: this.g.noiseField, backgroundNoise: this.g.backgroundNoise, foregroundNoise: this.g.foregroundNoise };
+
+        return {
+            noiseField: this.g.noiseField,
+            backgroundNoise: this.g.backgroundNoise,
+            foregroundNoise: this.g.foregroundNoise
+        };
     }
 }

@@ -49,7 +49,7 @@ export default class RenderEngine {
         if (c.isDepthAnimationMode || c.depthProcessor.depthImageData) {
             this._renderDepthMode(ctx, c, motionState, elapsedSeconds, timestamp);
         } else if (c.animationMode === 'content') {
-            this._renderContentMode(ctx, c, motionState, deltaSeconds, elapsedSeconds, timestamp);
+            this._renderContentMode(ctx, c, motionState, elapsedSeconds, timestamp);
         }
     }
 
@@ -85,7 +85,8 @@ export default class RenderEngine {
         };
 
         const currentDepthData = depthProcessor.getCurrentDepthData();
-
+        const useUnified = c.unifiedGradient && c.noiseGenerator.noiseType === 'gradient';
+        
         for (let y = 0; y < height; y++) {
             for (let x = 0; x < width; x++) {
                 const i = (y * width + x) * 4;
@@ -109,12 +110,25 @@ export default class RenderEngine {
 
                 let offsetX = x, offsetY = y;
                 if (depth >= depthProcessor.lowerThreshold && depth <= depthProcessor.upperThreshold) {
-                    if (movementDirection === 'vertical') offsetY = (y + offset) % height;
-                    else offsetX = (x + offset) % width;
+                    if (movementDirection === 'vertical') { offsetY = (y + offset) % height; }
+                    else { offsetX = (x + offset) % width; }
                 }
                 const sampleIndex = offsetY * width + offsetX;
                 const noiseValue = noiseField[sampleIndex];
-
+                
+                if (useUnified) {
+                    const unifiedColor = this.colorMapper.applyColorToPixel(
+                        noiseValue, 
+                        c.foregroundColorMode, 
+                        { foregroundHue: c.foregroundHue, foregroundSat: c.foregroundSat, gradStart: c.gradStart, gradEnd: c.gradEnd }
+                    );
+                    data[i] = unifiedColor.r;
+                    data[i+1] = unifiedColor.g;
+                    data[i+2] = unifiedColor.b;
+                    data[i+3] = 255;
+                    continue;
+                }
+                
                 let fgColor;
                 if (noiseGenerator.noiseType === 'colourful') {
                     if (noiseValue > 0) {
@@ -154,7 +168,7 @@ export default class RenderEngine {
         ctx.putImageData(imageData, 0, 0);
     }
 
-    _renderContentMode(ctx, c, motionState, deltaSeconds, elapsedSeconds, timestamp) {
+    _renderContentMode(ctx, c, motionState, elapsedSeconds, timestamp) {
         const { width, height } = this;
         const { noiseGenerator, contentRenderer, movementDirection } = c;
 
@@ -167,16 +181,6 @@ export default class RenderEngine {
                 const depthVal = c.depthProcessor.depthImageData[depthIdx];
                 speedMultiplier = 0.3 + (depthVal / 255) * 2.2;
             }
-        }
-
-        const pixelsPerSecond = 60;
-        const scrollDelta = pixelsPerSecond * c.animationSpeed * deltaSeconds * speedMultiplier;
-        if (movementDirection === 'vertical') {
-            motionState.backgroundOffset = (motionState.backgroundOffset + scrollDelta) % height;
-            motionState.foregroundOffset = (motionState.foregroundOffset - scrollDelta + height) % height;
-        } else {
-            motionState.backgroundOffset = (motionState.backgroundOffset + scrollDelta) % width;
-            motionState.foregroundOffset = (motionState.foregroundOffset - scrollDelta + width) % width;
         }
 
         const backgroundImageData = (function(){
@@ -205,7 +209,7 @@ export default class RenderEngine {
             foregroundData = contentRenderer.getMaskData();
         } else {
             foregroundData = contentRenderer.renderTransformedContent(
-                c.contentX, c.contentY,
+                motionState.contentX, motionState.contentY,
                 c.rotationSpeed * elapsedSeconds,
                 c.scaleFactor,
                 c.waveStrength,

@@ -88,8 +88,16 @@ eventBus.on('state:change', ({ key, val }) => {
             noiseGen.noiseType = val;
             document.querySelectorAll('.noise-parameters-group').forEach(g => g.style.display = 'none');
             const activeGroup = document.getElementById(val + 'Parameters');
-            if (activeGroup) activeGroup.style.display = 'block';
+            if (activeGroup) { activeGroup.style.display = 'block'; }
             document.getElementById('foregroundDensity').disabled = (val === 'colourful');
+            
+            // If not gradient, force to close unifiedGradient and corresponding UI
+            if (val !== 'gradient' && controller.unifiedGradient) {
+                animationState.set('unifiedGradient', false);
+                const unifiedToggle = document.getElementById('unifiedGradientToggle');
+                if (unifiedToggle) { unifiedToggle.checked = false; }
+            }
+            
             controller.refreshNoise();
             break;
         // Perlin
@@ -101,6 +109,15 @@ eventBus.on('state:change', ({ key, val }) => {
         case 'gradientDirection': noiseGen.gradientDirection = val; controller.refreshNoise(); break;
         case 'gradientMin': noiseGen.gradientMin = val; controller.refreshNoise(); break;
         case 'gradientMax': noiseGen.gradientMax = val; controller.refreshNoise(); break;
+        case 'gradientRawMode':
+            noiseGen.gradientRawMode = val;
+            controller.refreshNoise();   // regenerate background/foreground noise arrays
+            break;
+        case 'unifiedGradient':
+            controller.unifiedGradient = val;
+            // no need to refresh noise, just re-render (happens automatically)
+            break;
+        case 'unifiedGradient': controller.unifiedGradient = val; break;
         // Colourful
         case 'colourfulDensity': noiseGen.colourfulDensity = val; controller.refreshNoise(); break;
         // Dynamic
@@ -307,6 +324,20 @@ document.getElementById('perlinPersistence').addEventListener('input', (e) => { 
 document.getElementById('gradientDirection').addEventListener('change', (e) => { animationState.set('gradientDirection', e.target.value); });
 document.getElementById('gradientMin').addEventListener('input', (e) => { const v = parseInt(e.target.value); animationState.set('gradientMin', v); document.getElementById('gradientMinValue').textContent = v; });
 document.getElementById('gradientMax').addEventListener('input', (e) => { const v = parseInt(e.target.value); animationState.set('gradientMax', v); document.getElementById('gradientMaxValue').textContent = v; });
+// Raw gradient toggle (Content Mode)
+const gradientRawToggle = document.getElementById('gradientRawToggle');
+if (gradientRawToggle) {
+    gradientRawToggle.addEventListener('change', (e) => {
+        animationState.set('gradientRawMode', e.target.checked);
+    });
+}
+// Unified gradient toggle (Depth Mode)
+const unifiedGradientToggle = document.getElementById('unifiedGradientToggle');
+if (unifiedGradientToggle) {
+    unifiedGradientToggle.addEventListener('change', (e) => {
+        animationState.set('unifiedGradient', e.target.checked);
+    });
+}
 
 // Colourful
 document.getElementById('colourfulDensity').addEventListener('input', (e) => { const v = parseInt(e.target.value)/100; animationState.set('colourfulDensity', v); document.getElementById('colourfulDensityValue').textContent = (v*100) + '%'; });
