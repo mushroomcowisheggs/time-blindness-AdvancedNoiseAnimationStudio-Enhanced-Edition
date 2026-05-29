@@ -86,3 +86,41 @@ export function applyColorToPixel(gray, mode, params) {
     }
     return { r: gray, g: gray, b: gray };
 }
+
+// Helper: load Image from File
+export function loadImageFromFile(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = reject;
+            img.src = e.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+/*
+// Reliable seek: waits for 'seeked' event and verifies frame is ready
+export function seekDepthVideo(video, timeInSeconds) {
+    return new Promise((resolve) => {
+        if (!video || video.readyState < 2) { resolve(); return; }
+        const onSeeked = () => {
+            video.removeEventListener('seeked', onSeeked);
+            if (!video.seeking && video.readyState >= 2) {
+                resolve();
+            } else {
+                setTimeout(resolve, 50);
+            }
+        };
+        video.addEventListener('seeked', onSeeked);
+        video.currentTime = timeInSeconds;
+        setTimeout(() => {
+            video.removeEventListener('seeked', onSeeked);
+            resolve();
+        }, 2000);
+    });
+}
+*/

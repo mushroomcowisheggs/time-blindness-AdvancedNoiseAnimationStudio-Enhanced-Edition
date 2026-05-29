@@ -1,5 +1,6 @@
 // assets/js/classes/AnimationController.js
-import { hexToRgb, getCoordinateColor, applyColorToPixel, blendPixel } from '../utils.js';
+import RenderEngine from './RenderEngine.js';
+import MotionState from './MotionState.js';
 
 export default class AnimationController {
     constructor(canvas, noiseGenerator, contentRenderer, depthProcessor) {
@@ -45,6 +46,16 @@ export default class AnimationController {
         
         this.backgroundOffset = 0;
         this.foregroundOffset = 0;
+        // Create motion state and initialize values
+        this.motionState = new MotionState(this.width, this.height);
+        this.motionState.backgroundOffset = this.backgroundOffset;
+        this.motionState.foregroundOffset = this.foregroundOffset;
+        this.motionState.pathType = this.pathType;
+        this.motionState.pathSpeed = this.pathSpeed;
+        this.motionState.shapeVelX = this.shapeVelX;
+        this.motionState.shapeVelY = this.shapeVelY;
+        this.motionState.shapeMoveEnabled = this.shapeMoveEnabled;
+        this.motionState.keyframeAnimations = this.keyframeAnimations;
         
         this.keyframeAnimations = {};
         this.keyframeStartTime = null;
@@ -59,20 +70,45 @@ export default class AnimationController {
         this.shapeVelX = 2;
         this.shapeVelY = 2;
         
-        this.contentRenderer.contentX = this.contentX;
-        this.contentRenderer.contentY = this.contentY;
+        // Mirror content position into motionState
+        this.motionState.contentX = this.contentX;
+        this.motionState.contentY = this.contentY;
+        this.contentRenderer.contentX = this.motionState.contentX;
+        this.contentRenderer.contentY = this.motionState.contentY;
         
         this._boundAnimate = this._animate.bind(this);
+        // Attach render engine to delegate heavy rendering
+        this.renderEngine = new RenderEngine(this);
     }
-    
-    _getOffsetIndex(x, y, offset) {
-        const intOffset = Math.floor(offset);
-        if (this.movementDirection === 'vertical') {
-            const sy = ((y + intOffset) % this.height + this.height) % this.height;
-            return sy * this.width + x;
+
+    // New API: render frame at a given timestamp into offscreen ImageData
+    getFrameAtTime(timestamp) {
+        // Use RenderEngine to produce ImageData for the requested timestamp
+        const w = this.width, h = this.height;
+        let off, ctx;
+        if (typeof OffscreenCanvas !== 'undefined') {
+            off = new OffscreenCanvas(w, h);
+            ctx = off.getContext('2d');
         } else {
-            const sx = ((x + intOffset) % this.width + this.width) % this.width;
-            return y * this.width + sx;
+            off = document.createElement('canvas');
+            off.width = w; off.height = h;
+            ctx = off.getContext('2d');
+        }
+        const fakeNow = timestamp;
+        const elapsedSeconds = (fakeNow - (this.startTime || fakeNow)) / 1000;
+        const deltaSeconds = 0; // single-frame render, delta not meaningful
+        this.renderEngine.renderToContext(ctx, this, this.motionState, fakeNow, deltaSeconds, elapsedSeconds);
+        try {
+            return ctx.getImageData(0, 0, w, h);
+        } catch (e) {
+            // Some OffscreenCanvas contexts may not support getImageData; copy to a visible canvas
+            if (off instanceof OffscreenCanvas) {
+                const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h;
+                const tmpCtx = tmp.getContext('2d');
+                tmpCtx.drawImage(off, 0, 0);
+                return tmpCtx.getImageData(0, 0, w, h);
+            }
+            throw e;
         }
     }
     
@@ -96,14 +132,14 @@ export default class AnimationController {
     
     _updateShapeMovement(deltaSeconds) {
         if (!this.shapeMoveEnabled) return;
-        this.contentX += this.shapeVelX;
-        this.contentY += this.shapeVelY;
+        this.motionState.contentX += this.shapeVelX;
+        this.motionState.contentY += this.shapeVelY;
         const shapeSize = this.contentRenderer.shapeSize;
         const halfSize = shapeSize / 2;
-        if (this.contentX < halfSize || this.contentX > this.width - halfSize) this.shapeVelX *= -1;
-        if (this.contentY < halfSize || this.contentY > this.height - halfSize) this.shapeVelY *= -1;
-        this.contentRenderer.contentX = this.contentX;
-        this.contentRenderer.contentY = this.contentY;
+        if (this.motionState.contentX < halfSize || this.motionState.contentX > this.width - halfSize) this.shapeVelX *= -1;
+        if (this.motionState.contentY < halfSize || this.motionState.contentY > this.height - halfSize) this.shapeVelY *= -1;
+        this.contentRenderer.contentX = this.motionState.contentX;
+        this.contentRenderer.contentY = this.motionState.contentY;
     }
     
     _updatePath() {
@@ -111,267 +147,20 @@ export default class AnimationController {
         const radius = Math.min(this.width, this.height) * 0.3;
         let offsetX = 0, offsetY = 0;
         if (this.pathType === 'circle') {
-            offsetX = Math.cos(this.pathAngle) * radius;
-            offsetY = Math.sin(this.pathAngle) * radius;
+            offsetX = Math.cos(this.motionState.pathAngle) * radius;
+            offsetY = Math.sin(this.motionState.pathAngle) * radius;
         } else if (this.pathType === 'figure8') {
-            offsetX = Math.cos(this.pathAngle) * radius;
-            offsetY = Math.sin(this.pathAngle * 2) * radius / 2;
+            offsetX = Math.cos(this.motionState.pathAngle) * radius;
+            offsetY = Math.sin(this.motionState.pathAngle * 2) * radius / 2;
         }
-        this.contentX = this.width / 2 + offsetX;
-        this.contentY = this.height / 2 + offsetY;
-        this.contentRenderer.contentX = this.contentX;
-        this.contentRenderer.contentY = this.contentY;
+        this.motionState.contentX = this.width / 2 + offsetX;
+        this.motionState.contentY = this.height / 2 + offsetY;
+        this.contentRenderer.contentX = this.motionState.contentX;
+        this.contentRenderer.contentY = this.motionState.contentY;
         this.contentRenderer.markDirty();
     }
     
-    _getBackgroundImageData() {
-        const imageData = this.ctx.createImageData(this.width, this.height);
-        const data = imageData.data;
-        if (this.removeBackgroundNoise) {
-            const bg = hexToRgb(this.backgroundColor);
-            for (let i = 0; i < data.length; i += 4) {
-                data[i] = bg.r;
-                data[i+1] = bg.g;
-                data[i+2] = bg.b;
-                data[i+3] = 255;
-            }
-        } else {
-            const noiseField = this.noiseGenerator.noiseField;
-            for (let i = 0; i < this.width * this.height; i++) {
-                const val = noiseField[i];
-                const idx = i * 4;
-                data[idx] = val;
-                data[idx+1] = val;
-                data[idx+2] = val;
-                data[idx+3] = 255;
-            }
-        }
-        return imageData;
-    }
-    
-    _renderDepthMode(currentDepthData, elapsedSeconds, timestamp) {
-        const { width, height, movementDirection, depthProcessor, noiseGenerator, removeBackgroundNoise, backgroundColor, depthThreshold, backgroundMode, blendMode, foregroundColorMode } = this;
-        const pixelsPerSecond = depthProcessor.foregroundSpeed * depthProcessor.depthScale;
-        const totalOffset = pixelsPerSecond * elapsedSeconds;
-        const offset = movementDirection === 'vertical'
-            ? Math.floor(totalOffset) % height
-            : Math.floor(totalOffset) % width;
-
-        const imageData = this.ctx.createImageData(width, height);
-        const data = imageData.data;
-        const noiseField = noiseGenerator.noiseField;
-        const solidBg = hexToRgb(backgroundColor);
-        const colorParams = {
-            foregroundHue: this.foregroundHue,
-            foregroundSat: this.foregroundSat,
-            gradStart: this.gradStart,
-            gradEnd: this.gradEnd
-        };
-
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                const i = (y * width + x) * 4;
-                let depth = 0;
-                if (currentDepthData) {
-                    depth = currentDepthData[i];
-                    if (depth >= depthProcessor.lowerThreshold && depth <= depthProcessor.upperThreshold) {
-                        const neighbors = [];
-                        if (x > 0) neighbors.push(currentDepthData[i - 4]);
-                        if (x < width - 1) neighbors.push(currentDepthData[i + 4]);
-                        if (y > 0) neighbors.push(currentDepthData[(y - 1) * width * 4 + x * 4]);
-                        if (y < height - 1) neighbors.push(currentDepthData[(y + 1) * width * 4 + x * 4]);
-                        for (const nd of neighbors) {
-                            if (Math.abs(depth - nd) > depthProcessor.edgeThreshold) {
-                                depth = 0;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                // Foreground sampling with depth offset
-                let offsetX = x, offsetY = y;
-                if (depth >= depthProcessor.lowerThreshold && depth <= depthProcessor.upperThreshold) {
-                    if (movementDirection === 'vertical') offsetY = (y + offset) % height;
-                    else offsetX = (x + offset) % width;
-                }
-                const sampleIndex = offsetY * width + offsetX;
-                const noiseValue = noiseField[sampleIndex];
-
-                let fgColor;
-                if (noiseGenerator.noiseType === 'colourful') {
-                    if (noiseValue > 0) {
-                        fgColor = getCoordinateColor(offsetX, offsetY, timestamp);
-                    } else {
-                        fgColor = { r: 0, g: 0, b: 0 };
-                    }
-                } else {
-                    fgColor = applyColorToPixel(noiseValue, foregroundColorMode, colorParams);
-                }
-
-                // Quick path: removeBackgroundNoise + low depth -> solid color
-                const isDepthLow = currentDepthData && currentDepthData[i] < (depthThreshold * 2.55);
-                if (removeBackgroundNoise && isDepthLow) {
-                    data[i] = solidBg.r;
-                    data[i+1] = solidBg.g;
-                    data[i+2] = solidBg.b;
-                    data[i+3] = 255;
-                    continue;
-                }
-
-                // Calculate background color based on backgroundMode
-                let bgColor = { r: 0, g: 0, b: 0 };
-                switch (backgroundMode) {
-                    case 'static':
-                        bgColor = solidBg;
-                        break;
-                    case 'dynamic': {
-                        const bgNoiseVal = noiseGenerator.backgroundNoise[sampleIndex] ?? 0;
-                        bgColor = applyColorToPixel(bgNoiseVal, foregroundColorMode, colorParams);
-                        break;
-                    }
-                    case 'mixed': {
-                        const bgNoiseVal = noiseGenerator.backgroundNoise[sampleIndex] ?? 0;
-                        const dynamicBg = applyColorToPixel(bgNoiseVal, foregroundColorMode, colorParams);
-                        bgColor = blendPixel(solidBg, dynamicBg, blendMode);
-                        break;
-                    }
-                    default:
-                        bgColor = solidBg;
-                }
-
-                // Final blend between background and foreground
-                const finalColor = blendPixel(bgColor, fgColor, blendMode);
-                data[i] = finalColor.r;
-                data[i+1] = finalColor.g;
-                data[i+2] = finalColor.b;
-                data[i+3] = 255;
-            }
-        }
-        this.ctx.putImageData(imageData, 0, 0);
-    }
-    
-    _renderContentMode(deltaSeconds, elapsedSeconds, timestamp) {
-        const { width, height, noiseGenerator, contentRenderer, movementDirection, backgroundMode, animationSpeed, useDepthScaling, rotationSpeed, scaleFactor, waveStrength, foregroundColorMode, blendMode } = this;
-        
-        let speedMultiplier = 1.0;
-        if (useDepthScaling && this.depthProcessor.depthImageData) {
-            const cx = Math.floor(this.contentX);
-            const cy = Math.floor(this.contentY);
-            if (cx >= 0 && cx < width && cy >= 0 && cy < height) {
-                const depthIdx = (cy * width + cx) * 4;
-                const depthVal = this.depthProcessor.depthImageData[depthIdx];
-                speedMultiplier = 0.3 + (depthVal / 255) * 2.2;
-            }
-        }
-        
-        const pixelsPerSecond = 60;
-        const scrollDelta = pixelsPerSecond * animationSpeed * deltaSeconds * speedMultiplier;
-        if (movementDirection === 'vertical') {
-            this.backgroundOffset = (this.backgroundOffset + scrollDelta) % height;
-            this.foregroundOffset = (this.foregroundOffset - scrollDelta + height) % height;
-        } else {
-            this.backgroundOffset = (this.backgroundOffset + scrollDelta) % width;
-            this.foregroundOffset = (this.foregroundOffset - scrollDelta + width) % width;
-        }
-        
-        const backgroundImageData = this._getBackgroundImageData();
-        const backgroundData = backgroundImageData.data;
-        
-        let foregroundData;
-        const needTransform = (this.rotationSpeed !== 0 || this.scaleFactor !== 1 || this.waveStrength !== 0 || this.pathType !== 'none' || this.shapeMoveEnabled);
-        if (!needTransform && contentRenderer.useMaskCache) {
-            foregroundData = contentRenderer.getMaskData();
-        } else {
-            foregroundData = contentRenderer.renderTransformedContent(
-                this.contentX, this.contentY,
-                this.rotationSpeed * elapsedSeconds,
-                this.scaleFactor,
-                this.waveStrength,
-                timestamp / 1000
-            );
-        }
-        
-        const resultData = this.ctx.createImageData(width, height);
-        const outData = resultData.data;
-        const noiseType = noiseGenerator.noiseType;
-        const foregroundNoise = noiseGenerator.foregroundNoise;
-        const backgroundNoise = noiseGenerator.backgroundNoise;
-        const colorParams = {
-            foregroundHue: this.foregroundHue,
-            foregroundSat: this.foregroundSat,
-            gradStart: this.gradStart,
-            gradEnd: this.gradEnd
-        };
-        
-        for (let y = 0; y < height; y++) {
-            for (let x = 0; x < width; x++) {
-                const idx = (y * width + x) * 4;
-                const isForeground = foregroundData[idx] > 128;
-                
-                if (isForeground) {
-                    const noiseIdx = this._getOffsetIndex(x, y, this.foregroundOffset);
-                    const noiseVal = foregroundNoise[noiseIdx];
-                    let color;
-                    if (noiseType === 'colourful' && foregroundColorMode === 'grayscale') {
-                        if (noiseVal > 0) {
-                            const sampleX = movementDirection === 'vertical' ? x : ((x + Math.floor(this.foregroundOffset)) % width + width) % width;
-                            const sampleY = movementDirection === 'vertical' ? ((y + Math.floor(this.foregroundOffset)) % height + height) % height : y;
-                            color = getCoordinateColor(sampleX, sampleY, timestamp);
-                        } else {
-                            color = { r: 0, g: 0, b: 0 };
-                        }
-                    } else {
-                        color = applyColorToPixel(noiseVal, foregroundColorMode, colorParams);
-                    }
-                    outData[idx] = color.r;
-                    outData[idx+1] = color.g;
-                    outData[idx+2] = color.b;
-                    outData[idx+3] = 255;
-                } else {
-                    if (backgroundMode === 'static') {
-                        outData[idx] = backgroundData[idx];
-                        outData[idx+1] = backgroundData[idx+1];
-                        outData[idx+2] = backgroundData[idx+2];
-                        outData[idx+3] = 255;
-                    } else {
-                        const noiseIdx = this._getOffsetIndex(x, y, this.backgroundOffset);
-                        const noiseVal = backgroundNoise[noiseIdx];
-                        let noiseColor;
-                        if (noiseType === 'colourful' && foregroundColorMode === 'grayscale') {
-                            if (noiseVal > 0) {
-                                const sampleX = movementDirection === 'vertical' ? x : ((x + Math.floor(this.backgroundOffset)) % width + width) % width;
-                                const sampleY = movementDirection === 'vertical' ? ((y + Math.floor(this.backgroundOffset)) % height + height) % height : y;
-                                noiseColor = getCoordinateColor(sampleX, sampleY, timestamp);
-                            } else {
-                                noiseColor = { r: 0, g: 0, b: 0 };
-                            }
-                        } else {
-                            noiseColor = applyColorToPixel(noiseVal, foregroundColorMode, colorParams);
-                        }
-                        if (backgroundMode === 'dynamic') {
-                            outData[idx] = noiseColor.r;
-                            outData[idx+1] = noiseColor.g;
-                            outData[idx+2] = noiseColor.b;
-                            outData[idx+3] = 255;
-                        } else if (backgroundMode === 'mixed') {
-                            const bgColor = {
-                                r: backgroundData[idx],
-                                g: backgroundData[idx + 1],
-                                b: backgroundData[idx + 2]
-                            };
-                            const blended = blendPixel(bgColor, noiseColor, blendMode);
-                            outData[idx] = blended.r;
-                            outData[idx+1] = blended.g;
-                            outData[idx+2] = blended.b;
-                            outData[idx+3] = 255;
-                        }
-                    }
-                }
-            }
-        }
-        this.ctx.putImageData(resultData, 0, 0);
-    }
+    // Rendering is delegated to RenderEngine. Controller no longer contains duplicated render implementations.
     
     _animate(timestamp) {
         if (this.isPaused) {
@@ -397,8 +186,8 @@ export default class AnimationController {
         }
         
         if (this.animationMode === 'content' && this.pathType !== 'none') {
-            this.pathAngle += this.pathSpeed * deltaSeconds;
-            this.pathAngle %= (2 * Math.PI);
+            this.motionState.pathAngle += this.pathSpeed * deltaSeconds;
+            this.motionState.pathAngle %= (2 * Math.PI);
             this._updatePath();
         }
         
@@ -430,15 +219,11 @@ export default class AnimationController {
         
         const currentDepthData = this.depthProcessor.getCurrentDepthData();
         
-        if (this.isDepthAnimationMode || this.depthProcessor.depthImageData) {
-            if (this.isDepthAnimationMode) {
-                this._renderDepthMode(currentDepthData, elapsedSeconds, timestamp);
-                return;
-            }
-        }
-        
-        if (this.animationMode === 'content') {
-            this._renderContentMode(deltaSeconds, elapsedSeconds, timestamp);
+        // Delegate rendering to RenderEngine (thinned controller)
+        try {
+            this.renderEngine.renderToContext(this.ctx, this, this.motionState, timestamp, deltaSeconds, elapsedSeconds);
+        } catch (e) {
+            throw e;
         }
     }
     
@@ -495,5 +280,84 @@ export default class AnimationController {
     
     refreshNoise() {
         this.noiseGenerator.refresh(this.animationMode, this.movementDirection);
+    }
+    
+    // Update motionState (offsets, content position) based on elapsed time and delta.
+    // This mimics the state-update part of _animate without rendering.
+    updateMotionStateForElapsed(elapsedSeconds, deltaSeconds, nowTimestamp) {
+        // Update keyframes if any
+        if (Object.keys(this.keyframeAnimations).length > 0) {
+            if (!this.keyframeStartTime) this.keyframeStartTime = nowTimestamp;
+            const keyElapsed = (nowTimestamp - this.keyframeStartTime) / 1000;
+            for (let param in this.keyframeAnimations) {
+                const anim = this.keyframeAnimations[param];
+                let t;
+                if (anim.loop && anim.duration > 0) {
+                    t = (keyElapsed % anim.duration) / anim.duration;
+                } else {
+                    t = Math.min(1, keyElapsed / anim.duration);
+                }
+                const value = anim.start + (anim.end - anim.start) * t;
+                if (param === 'speed') this.animationSpeed = value;
+                else if (param === 'rotation') this.rotationSpeed = value;
+                else if (param === 'scale') this.scaleFactor = value;
+            }
+        }
+
+        // Depth scaling for content mode
+        let speedMultiplier = 1.0;
+        if (this.useDepthScaling && this.depthProcessor.depthImageData) {
+            const cx = Math.floor(this.motionState.contentX);
+            const cy = Math.floor(this.motionState.contentY);
+            if (cx >= 0 && cx < this.width && cy >= 0 && cy < this.height) {
+                const depthIdx = (cy * this.width + cx) * 4;
+                const depthVal = this.depthProcessor.depthImageData[depthIdx];
+                speedMultiplier = 0.3 + (depthVal / 255) * 2.2;
+            }
+        }
+
+        const pixelsPerSecond = 60;
+        const scrollDelta = pixelsPerSecond * this.animationSpeed * deltaSeconds * speedMultiplier;
+        if (this.movementDirection === 'vertical') {
+            this.motionState.backgroundOffset = (this.motionState.backgroundOffset + scrollDelta) % this.height;
+            this.motionState.foregroundOffset = (this.motionState.foregroundOffset - scrollDelta + this.height) % this.height;
+        } else {
+            this.motionState.backgroundOffset = (this.motionState.backgroundOffset + scrollDelta) % this.width;
+            this.motionState.foregroundOffset = (this.motionState.foregroundOffset - scrollDelta + this.width) % this.width;
+        }
+
+        // Path motion (content mode)
+        if (this.animationMode === 'content' && this.pathType !== 'none') {
+            this.motionState.pathAngle += this.pathSpeed * deltaSeconds;
+            this.motionState.pathAngle %= (2 * Math.PI);
+            const radius = Math.min(this.width, this.height) * 0.3;
+            let offsetX = 0, offsetY = 0;
+            if (this.pathType === 'circle') {
+                offsetX = Math.cos(this.motionState.pathAngle) * radius;
+                offsetY = Math.sin(this.motionState.pathAngle) * radius;
+            } else if (this.pathType === 'figure8') {
+                offsetX = Math.cos(this.motionState.pathAngle) * radius;
+                offsetY = Math.sin(this.motionState.pathAngle * 2) * radius / 2;
+            }
+            this.motionState.contentX = this.width / 2 + offsetX;
+            this.motionState.contentY = this.height / 2 + offsetY;
+            this.contentRenderer.contentX = this.motionState.contentX;
+            this.contentRenderer.contentY = this.motionState.contentY;
+            this.contentRenderer.markDirty();
+        }
+        // Shape movement (if enabled and no path)
+        else if (this.animationMode === 'content' && this.shapeMoveEnabled && this.pathType === 'none') {
+            this.motionState.contentX += this.shapeVelX;
+            this.motionState.contentY += this.shapeVelY;
+            const shapeSize = this.contentRenderer.shapeSize;
+            const halfSize = shapeSize / 2;
+            if (this.motionState.contentX < halfSize || this.motionState.contentX > this.width - halfSize) this.shapeVelX *= -1;
+            if (this.motionState.contentY < halfSize || this.motionState.contentY > this.height - halfSize) this.shapeVelY *= -1;
+            this.contentRenderer.contentX = this.motionState.contentX;
+            this.contentRenderer.contentY = this.motionState.contentY;
+            this.contentRenderer.markDirty();
+        }
+
+        // Sync back to motionState (updated outward directly)
     }
 }

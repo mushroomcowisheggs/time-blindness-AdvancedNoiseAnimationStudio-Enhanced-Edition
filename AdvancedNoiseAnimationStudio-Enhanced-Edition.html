@@ -512,6 +512,11 @@
             <label for="batchImageInput">Select multiple images</label>
             <input type="file" id="batchImageInput" accept="image/*" multiple>
           </div>
+          <!-- Selecting videos via "Select multiple videos" will export each video using its original duration (UI Duration is ignored for videos). -->
+          <div class="control-group" style="flex: 2; min-width: 200px;">
+            <label for="batchVideoInput">Select multiple videos</label>
+            <input type="file" id="batchVideoInput" accept="video/*" multiple>
+          </div>
           <div class="control-group">
             <label>Batch Mode</label>
             <select id="batchMode" class="compact-select">

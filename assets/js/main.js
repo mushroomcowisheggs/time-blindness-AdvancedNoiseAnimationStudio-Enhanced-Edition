@@ -3,11 +3,19 @@ import NoiseGenerator from './classes/NoiseGenerator.js';
 import ContentRenderer from './classes/ContentRenderer.js';
 import DepthProcessor from './classes/DepthProcessor.js';
 import AnimationController from './classes/AnimationController.js';
+import eventBus from './classes/EventBus.js';
+import animationState from './classes/AnimationState.js';
+import Scheduler from './classes/Scheduler.js';
+import ExportService from './classes/ExportService.js';
+import FFmpegService from './classes/FFmpegService.js';
+import UIController from './classes/UIController.js';
+import BatchProcessor from './classes/BatchProcessor.js';
 
 // === Add FFmpeg local module imports ===
 import { FFmpeg } from '@ffmpeg/ffmpeg';
-const coreURL = new URL('../../node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.js', import.meta.url).href;
-const wasmURL = new URL('../../node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.wasm', import.meta.url).href;
+// Use absolute paths so dev server can serve the ffmpeg core files reliably
+const coreURL = new URL('/node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.js', import.meta.url).href;
+const wasmURL = new URL('/node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.wasm', import.meta.url).href;
 
 // === Get Canvas ===
 const canvas = document.getElementById('noiseCanvas');
@@ -22,6 +30,172 @@ const controller = new AnimationController(canvas, noiseGen, contentRenderer, de
 
 // Sync initial state to UI default values
 noiseGen.refresh('content', 'vertical');
+
+// Subscribe to state changes and let the controller react to relevant updates
+eventBus.on('state:change', ({ key, val }) => {
+    // Central mapping from state keys -> component updates (keeps compatibility)
+    switch (key) {
+        case 'animationMode':
+            controller.setAnimationMode(val);
+            controller.refreshNoise();
+            {
+                const isDepth = controller.isDepthAnimationMode;
+                ['#rotationSpeed','#scaleFactor','#waveStrength','#pathType','#pathSpeed','#depthScalingToggle',
+                 '#keyframeParam','#keyframeStart','#keyframeEnd','#keyframeDuration','#keyframeLoop','#applyKeyframe']
+                    .forEach(sel => { const el = document.querySelector(sel); if (el) el.disabled = isDepth; });
+                ['#foregroundSpeed','#lowerThreshold','#upperThreshold','#edgeThreshold','#depthScale']
+                    .forEach(sel => { const el = document.querySelector(sel); if (el) el.disabled = !isDepth; });
+                const contentPanelInputs = document.querySelectorAll('#contentContent input, #contentContent select, #contentContent button');
+                contentPanelInputs.forEach(el => el.disabled = isDepth);
+                const depthContent = document.getElementById('depthContent');
+                const contentContent = document.getElementById('contentContent');
+                const depthHeader = depthContent.previousElementSibling;
+                const contentHeader = contentContent.previousElementSibling;
+                if (isDepth) {
+                    depthContent.classList.remove('collapsed');
+                    depthHeader.classList.remove('collapsed');
+                    contentContent.classList.add('collapsed');
+                    contentHeader.classList.add('collapsed');
+                } else {
+                    contentContent.classList.remove('collapsed');
+                    contentHeader.classList.remove('collapsed');
+                    depthContent.classList.add('collapsed');
+                    depthHeader.classList.add('collapsed');
+                }
+            }
+            break;
+        case 'backgroundMode':
+            controller.backgroundMode = val;
+            break;
+        case 'movementDirection':
+            controller.movementDirection = val;
+            controller.backgroundOffset = 0;
+            controller.foregroundOffset = 0;
+            controller.refreshNoise();
+            break;
+        case 'animationSpeed':
+            controller.animationSpeed = val;
+            break;
+        case 'backgroundDensity':
+            noiseGen.backgroundDensity = val;
+            controller.refreshNoise();
+            break;
+        case 'foregroundDensity':
+            noiseGen.foregroundDensity = val;
+            controller.refreshNoise();
+            break;
+        case 'noiseType':
+            noiseGen.noiseType = val;
+            document.querySelectorAll('.noise-parameters-group').forEach(g => g.style.display = 'none');
+            const activeGroup = document.getElementById(val + 'Parameters');
+            if (activeGroup) activeGroup.style.display = 'block';
+            document.getElementById('foregroundDensity').disabled = (val === 'colourful');
+            controller.refreshNoise();
+            break;
+        // Perlin
+        case 'perlinFrequency': noiseGen.perlinFrequency = val; controller.refreshNoise(); break;
+        case 'perlinAmplitude': noiseGen.perlinAmplitude = val; controller.refreshNoise(); break;
+        case 'perlinOctaves': noiseGen.perlinOctaves = val; controller.refreshNoise(); break;
+        case 'perlinPersistence': noiseGen.perlinPersistence = val; controller.refreshNoise(); break;
+        // Gradient
+        case 'gradientDirection': noiseGen.gradientDirection = val; controller.refreshNoise(); break;
+        case 'gradientMin': noiseGen.gradientMin = val; controller.refreshNoise(); break;
+        case 'gradientMax': noiseGen.gradientMax = val; controller.refreshNoise(); break;
+        // Colourful
+        case 'colourfulDensity': noiseGen.colourfulDensity = val; controller.refreshNoise(); break;
+        // Dynamic
+        case 'dynamicFrequencyX': noiseGen.dynamicFrequencyX = val; controller.refreshNoise(); break;
+        case 'dynamicFrequencyY': noiseGen.dynamicFrequencyY = val; controller.refreshNoise(); break;
+        case 'dynamicSpeed': noiseGen.dynamicSpeed = val; controller.refreshNoise(); break;
+        case 'dynamicAmplitude': noiseGen.dynamicAmplitude = val; controller.refreshNoise(); break;
+        // Foreground color
+        case 'foregroundColorMode': controller.foregroundColorMode = val; document.getElementById('foregroundHslControls').style.display = val === 'hsl' ? 'block' : 'none'; document.getElementById('gradientMapControls').style.display = val === 'gradient' ? 'block' : 'none'; break;
+        case 'foregroundHue': controller.foregroundHue = val; break;
+        case 'foregroundSat': controller.foregroundSat = val; break;
+        case 'foregroundLight': controller.foregroundLight = val; break;
+        case 'gradStart': controller.gradStart = val; break;
+        case 'gradEnd': controller.gradEnd = val; break;
+        case 'blendMode': controller.blendMode = val; break;
+        case 'speckleSize': noiseGen.speckleSize = val; controller.refreshNoise(); break;
+        case 'removeBackgroundNoise': controller.removeBackgroundNoise = val; document.getElementById('backgroundColorGroup').style.display = val ? 'flex' : 'none'; break;
+        case 'backgroundColor': controller.backgroundColor = val; break;
+        case 'depthThreshold': controller.depthThreshold = val; break;
+        // Transform / animation
+        case 'rotationSpeed': controller.rotationSpeed = val; break;
+        case 'scaleFactor': controller.scaleFactor = val; break;
+        case 'depthScalingToggle': controller.useDepthScaling = val; break;
+        case 'waveStrength': controller.waveStrength = val; break;
+        case 'pathType': controller.pathType = val; controller.pathAngle = 0; document.getElementById('shapeMoveToggle').disabled = val !== 'none'; break;
+        case 'pathSpeed': controller.pathSpeed = val; break;
+        // Depth processor specific
+        case 'depthSource': depthProcessor.depthSource = val; document.getElementById('depthImageGroup').style.display = val === 'image' ? 'block' : 'none'; document.getElementById('depthVideoGroup').style.display = val === 'video' ? 'block' : 'none'; break;
+        case 'foregroundSpeed': depthProcessor.foregroundSpeed = val; break;
+        case 'lowerThreshold': depthProcessor.lowerThreshold = val; document.getElementById('lowerThresholdValue').textContent = depthProcessor.lowerThreshold; break;
+        case 'upperThreshold': depthProcessor.upperThreshold = val; document.getElementById('upperThresholdValue').textContent = depthProcessor.upperThreshold; break;
+        case 'edgeThreshold': depthProcessor.edgeThreshold = val; document.getElementById('edgeThresholdValue').textContent = depthProcessor.edgeThreshold; break;
+        case 'depthScale': depthProcessor.depthScale = val; break;
+        // Content
+        case 'contentType': contentRenderer.contentType = val; document.getElementById('textControls').style.display = contentRenderer.contentType === 'text' ? 'block' : 'none'; document.getElementById('imageControls').style.display = contentRenderer.contentType === 'image' ? 'block' : 'none'; document.getElementById('shapeControls').style.display = contentRenderer.contentType === 'shape' ? 'block' : 'none'; document.getElementById('polygonSides').style.display = contentRenderer.contentType === 'shape' && contentRenderer.shapeType === 'polygon' ? 'block' : 'none'; contentRenderer.contentX = width/2; contentRenderer.contentY = height/2; controller.contentX = width/2; controller.contentY = height/2; contentRenderer.markDirty(); document.getElementById('contentStatus').classList.add('active'); break;
+        case 'textInput': contentRenderer.currentText = val; contentRenderer.markDirty(); break;
+        case 'fontSize': contentRenderer.fontSize = val; contentRenderer.markDirty(); break;
+        case 'shapeType': contentRenderer.shapeType = val; document.getElementById('polygonSides').style.display = contentRenderer.shapeType === 'polygon' ? 'block' : 'none'; contentRenderer.markDirty(); break;
+        case 'shapeSize': contentRenderer.shapeSize = val; contentRenderer.markDirty(); break;
+        case 'shapeSides': contentRenderer.shapeSides = val; contentRenderer.markDirty(); break;
+        case 'shapeMoveToggle': controller.shapeMoveEnabled = val; break;
+        case 'randomPosition':
+            const cx = Math.random() * width;
+            const cy = Math.random() * height;
+            contentRenderer.contentX = cx; contentRenderer.contentY = cy; controller.contentX = cx; controller.contentY = cy; contentRenderer.markDirty();
+            break;
+        // Keyframe apply handled via separate event
+        default:
+            break;
+    }
+});
+
+// Handle file-loading actions emitted via state
+eventBus.on('state:change', async ({ key, val }) => {
+    if (key === 'depthImageFile') {
+        try { await depthProcessor.loadDepthImage(val); } catch (e) { console.warn('Depth image load failed', e); }
+    } else if (key === 'depthVideoFile') {
+        try { await depthProcessor.loadDepthVideo(val); } catch (e) { console.warn('Depth video load failed', e); }
+    } else if (key === 'contentImageFile') {
+        try {
+            const img = await loadImageFromFile(val);
+            contentRenderer.currentImage = img;
+            contentRenderer.contentX = width/2;
+            contentRenderer.contentY = height/2;
+            controller.contentX = width/2;
+            controller.contentY = height/2;
+            contentRenderer.markDirty();
+            contentRenderer.contentType = 'image';
+            const sel = document.getElementById('contentType'); if (sel) sel.value = 'image';
+            document.getElementById('contentStatus').classList.add('active');
+        } catch (e) { console.warn('Content image load failed', e); }
+    } else if (key === 'applyKeyframe') {
+        // val expected to be an object: { param, start, end, duration, loop }
+        try {
+            const k = val;
+            controller.keyframeAnimations[k.param] = { start: k.start, end: k.end, duration: k.duration, loop: !!k.loop };
+            controller.keyframeStartTime = null;
+        } catch (e) { console.warn('Apply keyframe failed', e); }
+    }
+});
+
+// Should be created before supported services
+const ffmpegService = new FFmpegService(coreURL, wasmURL);
+
+// Before batchProcessor
+const exportService = new ExportService(controller, ffmpegService, { fps: 30 });
+
+const batchProcessor = new BatchProcessor(controller, exportService, contentRenderer, depthProcessor);
+
+// Instantiate Scheduler and ExportService
+const scheduler = new Scheduler(controller, animationState);
+
+// Initialize UIController after dependent helpers and services exist
+const uiController = new UIController({ controller, contentRenderer, depthProcessor, exportService, ffmpegService, scheduler, noiseGen, batchProcessor });
+uiController.init();
 
 // === General Collapsible Panel ===
 window.toggleSection = function(sectionId) {
@@ -40,292 +214,143 @@ window.toggleSection = function(sectionId) {
 // === Depth Control Events ===
 document.querySelectorAll('input[name="depthSource"]').forEach(radio => {
     radio.addEventListener('change', (e) => {
-        depthProcessor.depthSource = e.target.value;
-        document.getElementById('depthImageGroup').style.display = depthProcessor.depthSource === 'image' ? 'block' : 'none';
-        document.getElementById('depthVideoGroup').style.display = depthProcessor.depthSource === 'video' ? 'block' : 'none';
+        animationState.set('depthSource', e.target.value);
     });
 });
 
 document.getElementById('depthImageInput').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    depthProcessor.loadDepthImage(file);
+    animationState.set('depthImageFile', file);
 });
 
 document.getElementById('depthVideoInput').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    depthProcessor.loadDepthVideo(file);
+    animationState.set('depthVideoFile', file);
 });
 
 document.getElementById('foregroundSpeed').addEventListener('input', (e) => {
-    depthProcessor.foregroundSpeed = parseFloat(e.target.value) || 60;
+    animationState.set('foregroundSpeed', parseFloat(e.target.value) || 60);
 });
 document.getElementById('lowerThreshold').addEventListener('input', (e) => {
-    depthProcessor.lowerThreshold = parseInt(e.target.value);
-    document.getElementById('lowerThresholdValue').textContent = depthProcessor.lowerThreshold;
-    if (depthProcessor.lowerThreshold > depthProcessor.upperThreshold) {
-        depthProcessor.upperThreshold = depthProcessor.lowerThreshold;
-        document.getElementById('upperThreshold').value = depthProcessor.upperThreshold;
-        document.getElementById('upperThresholdValue').textContent = depthProcessor.upperThreshold;
+    const v = parseInt(e.target.value);
+    animationState.set('lowerThreshold', v);
+    document.getElementById('lowerThresholdValue').textContent = v;
+    if (v > depthProcessor.upperThreshold) {
+        animationState.set('upperThreshold', v);
+        document.getElementById('upperThreshold').value = v;
+        document.getElementById('upperThresholdValue').textContent = v;
     }
 });
 document.getElementById('upperThreshold').addEventListener('input', (e) => {
-    depthProcessor.upperThreshold = parseInt(e.target.value);
-    document.getElementById('upperThresholdValue').textContent = depthProcessor.upperThreshold;
-    if (depthProcessor.upperThreshold < depthProcessor.lowerThreshold) {
-        depthProcessor.lowerThreshold = depthProcessor.upperThreshold;
-        document.getElementById('lowerThreshold').value = depthProcessor.lowerThreshold;
-        document.getElementById('lowerThresholdValue').textContent = depthProcessor.lowerThreshold;
+    const v = parseInt(e.target.value);
+    animationState.set('upperThreshold', v);
+    document.getElementById('upperThresholdValue').textContent = v;
+    if (v < depthProcessor.lowerThreshold) {
+        animationState.set('lowerThreshold', v);
+        document.getElementById('lowerThreshold').value = v;
+        document.getElementById('lowerThresholdValue').textContent = v;
     }
 });
 document.getElementById('edgeThreshold').addEventListener('input', (e) => {
-    depthProcessor.edgeThreshold = parseInt(e.target.value);
-    document.getElementById('edgeThresholdValue').textContent = depthProcessor.edgeThreshold;
+    const v = parseInt(e.target.value);
+    animationState.set('edgeThreshold', v);
+    document.getElementById('edgeThresholdValue').textContent = v;
 });
 document.getElementById('depthScale').addEventListener('input', (e) => {
-    depthProcessor.depthScale = parseFloat(e.target.value) || 2;
+    animationState.set('depthScale', parseFloat(e.target.value) || 2);
 });
 
 // === Content Control Events ===
 document.getElementById('contentType').addEventListener('change', (e) => {
-    contentRenderer.contentType = e.target.value;
-    document.getElementById('textControls').style.display = contentRenderer.contentType === 'text' ? 'block' : 'none';
-    document.getElementById('imageControls').style.display = contentRenderer.contentType === 'image' ? 'block' : 'none';
-    document.getElementById('shapeControls').style.display = contentRenderer.contentType === 'shape' ? 'block' : 'none';
-    document.getElementById('polygonSides').style.display = contentRenderer.contentType === 'shape' && contentRenderer.shapeType === 'polygon' ? 'block' : 'none';
-    contentRenderer.contentX = width / 2;
-    contentRenderer.contentY = height / 2;
-    controller.contentX = width / 2;
-    controller.contentY = height / 2;
-    contentRenderer.markDirty();
-    document.getElementById('contentStatus').classList.add('active');
+    animationState.set('contentType', e.target.value);
 });
 
 document.getElementById('textInput').addEventListener('input', (e) => {
-    contentRenderer.currentText = e.target.value;
-    contentRenderer.markDirty();
+    animationState.set('textInput', e.target.value);
 });
 document.getElementById('fontSize').addEventListener('input', (e) => {
-    contentRenderer.fontSize = Math.max(5, parseInt(e.target.value));
-    contentRenderer.markDirty();
+    animationState.set('fontSize', Math.max(5, parseInt(e.target.value)));
 });
 document.getElementById('imageInput').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-        const img = new Image();
-        img.onload = () => {
-            contentRenderer.currentImage = img;
-            contentRenderer.contentX = width / 2;
-            contentRenderer.contentY = height / 2;
-            controller.contentX = width / 2;
-            controller.contentY = height / 2;
-            contentRenderer.markDirty();
-        };
-        img.src = evt.target.result;
-    };
-    reader.readAsDataURL(file);
+    animationState.set('contentImageFile', file);
 });
 document.getElementById('shapeType').addEventListener('change', (e) => {
-    contentRenderer.shapeType = e.target.value;
-    document.getElementById('polygonSides').style.display = contentRenderer.shapeType === 'polygon' ? 'block' : 'none';
-    contentRenderer.markDirty();
+    animationState.set('shapeType', e.target.value);
 });
 document.getElementById('shapeSize').addEventListener('input', (e) => {
-    contentRenderer.shapeSize = Math.max(10, parseInt(e.target.value));
-    contentRenderer.markDirty();
+    animationState.set('shapeSize', Math.max(10, parseInt(e.target.value)));
 });
 document.getElementById('shapeSides').addEventListener('input', (e) => {
-    contentRenderer.shapeSides = Math.max(3, parseInt(e.target.value));
-    contentRenderer.markDirty();
+    animationState.set('shapeSides', Math.max(3, parseInt(e.target.value)));
 });
 document.getElementById('shapeMoveToggle').addEventListener('change', (e) => {
-    controller.shapeMoveEnabled = e.target.checked;
+    animationState.set('shapeMoveToggle', e.target.checked);
 });
 document.getElementById('randomPosition').addEventListener('click', () => {
-    const cx = Math.random() * width;
-    const cy = Math.random() * height;
-    contentRenderer.contentX = cx;
-    contentRenderer.contentY = cy;
-    controller.contentX = cx;
-    controller.contentY = cy;
-    contentRenderer.markDirty();
+    animationState.set('randomPosition', Date.now());
 });
 
 // === Animation Control Events ===
 document.getElementById('animationMode').addEventListener('change', (e) => {
-    controller.setAnimationMode(e.target.value);
-    controller.refreshNoise();
-    // UI linkage
-    const isDepth = controller.isDepthAnimationMode;
-    ['#rotationSpeed','#scaleFactor','#waveStrength','#pathType','#pathSpeed','#depthScalingToggle',
-     '#keyframeParam','#keyframeStart','#keyframeEnd','#keyframeDuration','#keyframeLoop','#applyKeyframe']
-        .forEach(sel => { const el = document.querySelector(sel); if (el) el.disabled = isDepth; });
-    ['#foregroundSpeed','#lowerThreshold','#upperThreshold','#edgeThreshold','#depthScale']
-        .forEach(sel => { const el = document.querySelector(sel); if (el) el.disabled = !isDepth; });
-    const contentPanelInputs = document.querySelectorAll('#contentContent input, #contentContent select, #contentContent button');
-    contentPanelInputs.forEach(el => el.disabled = isDepth);
-    const depthContent = document.getElementById('depthContent');
-    const contentContent = document.getElementById('contentContent');
-    const depthHeader = depthContent.previousElementSibling;
-    const contentHeader = contentContent.previousElementSibling;
-    if (isDepth) {
-        depthContent.classList.remove('collapsed');
-        depthHeader.classList.remove('collapsed');
-        contentContent.classList.add('collapsed');
-        contentHeader.classList.add('collapsed');
-    } else {
-        contentContent.classList.remove('collapsed');
-        contentHeader.classList.remove('collapsed');
-        depthContent.classList.add('collapsed');
-        depthHeader.classList.add('collapsed');
-    }
+    animationState.set('animationMode', e.target.value);
 });
 
-document.getElementById('backgroundMode').addEventListener('change', (e) => {
-    controller.backgroundMode = e.target.value;
-});
+document.getElementById('backgroundMode').addEventListener('change', (e) => { animationState.set('backgroundMode', e.target.value); });
 
-document.getElementById('movementDirection').addEventListener('change', (e) => {
-    controller.movementDirection = e.target.value;
-    controller.backgroundOffset = 0;
-    controller.foregroundOffset = 0;
-    controller.refreshNoise();
-});
+document.getElementById('movementDirection').addEventListener('change', (e) => { animationState.set('movementDirection', e.target.value); });
 
-document.getElementById('animationSpeed').addEventListener('input', (e) => {
-    controller.animationSpeed = parseFloat(e.target.value) || 2;
-});
+document.getElementById('animationSpeed').addEventListener('input', (e) => { animationState.set('animationSpeed', parseFloat(e.target.value) || 2); });
 
-document.getElementById('backgroundDensity').addEventListener('input', (e) => {
-    const value = parseInt(e.target.value);
-    noiseGen.backgroundDensity = value / 100;
-    document.getElementById('backgroundDensityValue').textContent = value + '%';
-    controller.refreshNoise();
-});
-document.getElementById('foregroundDensity').addEventListener('input', (e) => {
-    const value = parseInt(e.target.value);
-    noiseGen.foregroundDensity = value / 100;
-    document.getElementById('foregroundDensityValue').textContent = value + '%';
-    controller.refreshNoise();
-});
+document.getElementById('backgroundDensity').addEventListener('input', (e) => { const value = parseInt(e.target.value); animationState.set('backgroundDensity', value/100); document.getElementById('backgroundDensityValue').textContent = value + '%'; });
+document.getElementById('foregroundDensity').addEventListener('input', (e) => { const value = parseInt(e.target.value); animationState.set('foregroundDensity', value/100); document.getElementById('foregroundDensityValue').textContent = value + '%'; });
 
 // Noise Type
-document.getElementById('noiseType').addEventListener('change', (e) => {
-    noiseGen.noiseType = e.target.value;
-    document.querySelectorAll('.noise-parameters-group').forEach(g => g.style.display = 'none');
-    const activeGroup = document.getElementById(e.target.value + 'Parameters');
-    if (activeGroup) activeGroup.style.display = 'block';
-    document.getElementById('foregroundDensity').disabled = (e.target.value === 'colourful');
-    controller.refreshNoise();
-});
+document.getElementById('noiseType').addEventListener('change', (e) => { animationState.set('noiseType', e.target.value); });
 
 // Perlin Parameters
-document.getElementById('perlinFrequency').addEventListener('input', (e) => {
-    noiseGen.perlinFrequency = parseFloat(e.target.value);
-    document.getElementById('perlinFrequencyValue').textContent = noiseGen.perlinFrequency.toFixed(3);
-    controller.refreshNoise();
-});
-document.getElementById('perlinAmplitude').addEventListener('input', (e) => {
-    noiseGen.perlinAmplitude = parseInt(e.target.value);
-    document.getElementById('perlinAmplitudeValue').textContent = noiseGen.perlinAmplitude;
-    controller.refreshNoise();
-});
-document.getElementById('perlinOctaves').addEventListener('input', (e) => {
-    noiseGen.perlinOctaves = Math.max(1, parseInt(e.target.value));
-    controller.refreshNoise();
-});
-document.getElementById('perlinPersistence').addEventListener('input', (e) => {
-    noiseGen.perlinPersistence = parseFloat(e.target.value);
-    document.getElementById('perlinPersistenceValue').textContent = noiseGen.perlinPersistence.toFixed(2);
-    controller.refreshNoise();
-});
+document.getElementById('perlinFrequency').addEventListener('input', (e) => { const v = parseFloat(e.target.value); animationState.set('perlinFrequency', v); document.getElementById('perlinFrequencyValue').textContent = v.toFixed(3); });
+document.getElementById('perlinAmplitude').addEventListener('input', (e) => { const v = parseInt(e.target.value); animationState.set('perlinAmplitude', v); document.getElementById('perlinAmplitudeValue').textContent = v; });
+document.getElementById('perlinOctaves').addEventListener('input', (e) => { const v = Math.max(1, parseInt(e.target.value)); animationState.set('perlinOctaves', v); });
+document.getElementById('perlinPersistence').addEventListener('input', (e) => { const v = parseFloat(e.target.value); animationState.set('perlinPersistence', v); document.getElementById('perlinPersistenceValue').textContent = v.toFixed(2); });
 
 // Gradient Parameters
-document.getElementById('gradientDirection').addEventListener('change', (e) => {
-    noiseGen.gradientDirection = e.target.value;
-    controller.refreshNoise();
-});
-document.getElementById('gradientMin').addEventListener('input', (e) => {
-    noiseGen.gradientMin = parseInt(e.target.value);
-    document.getElementById('gradientMinValue').textContent = noiseGen.gradientMin;
-    controller.refreshNoise();
-});
-document.getElementById('gradientMax').addEventListener('input', (e) => {
-    noiseGen.gradientMax = parseInt(e.target.value);
-    document.getElementById('gradientMaxValue').textContent = noiseGen.gradientMax;
-    controller.refreshNoise();
-});
+document.getElementById('gradientDirection').addEventListener('change', (e) => { animationState.set('gradientDirection', e.target.value); });
+document.getElementById('gradientMin').addEventListener('input', (e) => { const v = parseInt(e.target.value); animationState.set('gradientMin', v); document.getElementById('gradientMinValue').textContent = v; });
+document.getElementById('gradientMax').addEventListener('input', (e) => { const v = parseInt(e.target.value); animationState.set('gradientMax', v); document.getElementById('gradientMaxValue').textContent = v; });
 
 // Colourful
-document.getElementById('colourfulDensity').addEventListener('input', (e) => {
-    noiseGen.colourfulDensity = parseInt(e.target.value) / 100;
-    document.getElementById('colourfulDensityValue').textContent = (noiseGen.colourfulDensity * 100) + '%';
-    controller.refreshNoise();
-});
+document.getElementById('colourfulDensity').addEventListener('input', (e) => { const v = parseInt(e.target.value)/100; animationState.set('colourfulDensity', v); document.getElementById('colourfulDensityValue').textContent = (v*100) + '%'; });
 
 // Dynamic
-document.getElementById('dynamicFrequencyX').addEventListener('input', (e) => {
-    noiseGen.dynamicFrequencyX = parseFloat(e.target.value);
-    controller.refreshNoise();
-});
-document.getElementById('dynamicFrequencyY').addEventListener('input', (e) => {
-    noiseGen.dynamicFrequencyY = parseFloat(e.target.value);
-    controller.refreshNoise();
-});
-document.getElementById('dynamicSpeed').addEventListener('input', (e) => {
-    noiseGen.dynamicSpeed = parseFloat(e.target.value);
-    controller.refreshNoise();
-});
-document.getElementById('dynamicAmplitude').addEventListener('input', (e) => {
-    noiseGen.dynamicAmplitude = parseInt(e.target.value);
-    controller.refreshNoise();
-});
+document.getElementById('dynamicFrequencyX').addEventListener('input', (e) => { animationState.set('dynamicFrequencyX', parseFloat(e.target.value)); });
+document.getElementById('dynamicFrequencyY').addEventListener('input', (e) => { animationState.set('dynamicFrequencyY', parseFloat(e.target.value)); });
+document.getElementById('dynamicSpeed').addEventListener('input', (e) => { animationState.set('dynamicSpeed', parseFloat(e.target.value)); });
+document.getElementById('dynamicAmplitude').addEventListener('input', (e) => { animationState.set('dynamicAmplitude', parseInt(e.target.value)); });
 
 // Foreground Color Mode
-document.getElementById('foregroundColorMode').addEventListener('change', (e) => {
-    controller.foregroundColorMode = e.target.value;
-    document.getElementById('foregroundHslControls').style.display = e.target.value === 'hsl' ? 'block' : 'none';
-    document.getElementById('gradientMapControls').style.display = e.target.value === 'gradient' ? 'block' : 'none';
-});
-document.getElementById('foregroundHue').addEventListener('input', (e) => {
-    controller.foregroundHue = parseInt(e.target.value);
-    document.getElementById('foregroundHueValue').textContent = controller.foregroundHue;
-});
-document.getElementById('foregroundSat').addEventListener('input', (e) => {
-    controller.foregroundSat = parseInt(e.target.value);
-    document.getElementById('foregroundSatValue').textContent = controller.foregroundSat;
-});
-document.getElementById('foregroundLight').addEventListener('input', (e) => {
-    controller.foregroundLight = parseInt(e.target.value);
-    document.getElementById('foregroundLightValue').textContent = controller.foregroundLight;
-});
-document.getElementById('gradStart').addEventListener('input', (e) => { controller.gradStart = e.target.value; });
-document.getElementById('gradEnd').addEventListener('input', (e) => { controller.gradEnd = e.target.value; });
-document.getElementById('blendMode').addEventListener('change', (e) => { controller.blendMode = e.target.value; });
+document.getElementById('foregroundColorMode').addEventListener('change', (e) => { animationState.set('foregroundColorMode', e.target.value); });
+document.getElementById('foregroundHue').addEventListener('input', (e) => { const v = parseInt(e.target.value); animationState.set('foregroundHue', v); document.getElementById('foregroundHueValue').textContent = v; });
+document.getElementById('foregroundSat').addEventListener('input', (e) => { const v = parseInt(e.target.value); animationState.set('foregroundSat', v); document.getElementById('foregroundSatValue').textContent = v; });
+document.getElementById('foregroundLight').addEventListener('input', (e) => { const v = parseInt(e.target.value); animationState.set('foregroundLight', v); document.getElementById('foregroundLightValue').textContent = v; });
+document.getElementById('gradStart').addEventListener('input', (e) => { animationState.set('gradStart', e.target.value); });
+document.getElementById('gradEnd').addEventListener('input', (e) => { animationState.set('gradEnd', e.target.value); });
+document.getElementById('blendMode').addEventListener('change', (e) => { animationState.set('blendMode', e.target.value); });
 
-document.getElementById('speckleSize').addEventListener('input', (e) => {
-    noiseGen.speckleSize = Math.max(1, parseInt(e.target.value));
-    controller.refreshNoise();
-});
+document.getElementById('speckleSize').addEventListener('input', (e) => { animationState.set('speckleSize', Math.max(1, parseInt(e.target.value))); });
 
-document.getElementById('removeBackgroundNoise').addEventListener('change', (e) => {
-    controller.removeBackgroundNoise = e.target.checked;
-    document.getElementById('backgroundColorGroup').style.display = controller.removeBackgroundNoise ? 'flex' : 'none';
-});
-document.getElementById('backgroundColor').addEventListener('input', (e) => { controller.backgroundColor = e.target.value; });
-document.getElementById('depthThreshold').addEventListener('input', (e) => {
-    controller.depthThreshold = parseInt(e.target.value);
-    document.getElementById('depthThresholdValue').textContent = controller.depthThreshold;
-});
+document.getElementById('removeBackgroundNoise').addEventListener('change', (e) => { animationState.set('removeBackgroundNoise', e.target.checked); document.getElementById('backgroundColorGroup').style.display = e.target.checked ? 'flex' : 'none'; });
+document.getElementById('backgroundColor').addEventListener('input', (e) => { animationState.set('backgroundColor', e.target.value); });
+document.getElementById('depthThreshold').addEventListener('input', (e) => { const v = parseInt(e.target.value); animationState.set('depthThreshold', v); document.getElementById('depthThresholdValue').textContent = v; });
 
 // Pause
 function togglePause() {
     const depthVideo = depthProcessor && depthProcessor.depthVideo ? depthProcessor.depthVideo : null;
     if (controller.isPaused) {
-        controller.resume();
+        scheduler.resume();
         document.querySelector('#canvasPauseButton span:not(.btn-icon)').textContent = 'Pause';
         document.querySelector('#canvasPauseButton .btn-icon').textContent = '⏸';
         document.getElementById('animationStatus').classList.add('active');
@@ -343,7 +368,7 @@ function togglePause() {
             if (depthVideo) depthVideo.pause();
         } catch (e) { window._depthVideoWasPlaying = false; }
         
-        controller.pause();
+        scheduler.pause();
         document.querySelector('#canvasPauseButton span:not(.btn-icon)').textContent = 'Resume';
         document.querySelector('#canvasPauseButton .btn-icon').textContent = '▶';
         document.getElementById('animationStatus').classList.remove('active');
@@ -406,39 +431,50 @@ document.getElementById('recordButton').addEventListener('click', () => {
 const quickExportBtn = document.getElementById('quickExportButton');
 const quickExportDurationSelect = document.getElementById('quickExportDuration');
 quickExportBtn.addEventListener('click', () => {
-    if (isRecording && !quickExportActive) {
+    if (isRecording) {
         alert('Please stop the current recording before starting a quick export.');
         return;
     }
-    if (quickExportActive) {
-        stopRecording();
-        return;
-    }
     const dur = parseInt(quickExportDurationSelect.value) || 10;
-    document.getElementById('recordDuration').value = dur;
-    quickExportActive = true;
-    startRecording();
-    quickExportBtn.querySelector('span:last-child').textContent = 'Cancel Export';
-    quickExportBtn.classList.add('recording');
+    quickExportBtn.disabled = true;
+    quickExportBtn.querySelector('span:last-child').textContent = 'Exporting...';
+    exportService.quickExport(dur, 30).then((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `quick-export-${dur}s.webm`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }).catch(err => {
+        console.error('Quick export failed', err);
+        alert('Quick export failed: ' + (err && err.message ? err.message : String(err)));
+    }).finally(() => {
+        quickExportBtn.disabled = false;
+        quickExportBtn.querySelector('span:last-child').textContent = 'Quick Export';
+        quickExportBtn.classList.remove('recording');
+    });
 });
 
 // Transformation Parameters
-document.getElementById('rotationSpeed').addEventListener('input', (e) => { controller.rotationSpeed = parseFloat(e.target.value); });
+document.getElementById('rotationSpeed').addEventListener('input', (e) => { animationState.set('rotationSpeed', parseFloat(e.target.value)); });
 document.getElementById('scaleFactor').addEventListener('input', (e) => {
-    controller.scaleFactor = parseFloat(e.target.value);
-    document.getElementById('scaleValue').textContent = controller.scaleFactor.toFixed(2);
+    const v = parseFloat(e.target.value);
+    animationState.set('scaleFactor', v);
+    document.getElementById('scaleValue').textContent = (isNaN(v) ? 0 : v).toFixed(2);
 });
-document.getElementById('depthScalingToggle').addEventListener('change', (e) => { controller.useDepthScaling = e.target.checked; });
+document.getElementById('depthScalingToggle').addEventListener('change', (e) => { animationState.set('depthScalingToggle', e.target.checked); });
 document.getElementById('waveStrength').addEventListener('input', (e) => {
-    controller.waveStrength = parseFloat(e.target.value);
-    document.getElementById('waveStrengthValue').textContent = controller.waveStrength;
+    const v = parseFloat(e.target.value);
+    animationState.set('waveStrength', isNaN(v) ? 0 : v);
+    document.getElementById('waveStrengthValue').textContent = (isNaN(v) ? 0 : v);
 });
 document.getElementById('pathType').addEventListener('change', (e) => {
-    controller.pathType = e.target.value;
-    controller.pathAngle = 0;
-    document.getElementById('shapeMoveToggle').disabled = e.target.value !== 'none';
+    const val = e.target.value;
+    animationState.set('pathType', val);
+    // keep immediate UI feedback for the toggle
+    document.getElementById('shapeMoveToggle').disabled = val !== 'none';
 });
-document.getElementById('pathSpeed').addEventListener('input', (e) => { controller.pathSpeed = parseFloat(e.target.value); });
+document.getElementById('pathSpeed').addEventListener('input', (e) => { animationState.set('pathSpeed', parseFloat(e.target.value)); });
 
 // Keyframes
 document.getElementById('applyKeyframe').addEventListener('click', () => {
@@ -447,8 +483,7 @@ document.getElementById('applyKeyframe').addEventListener('click', () => {
     const end = parseFloat(document.getElementById('keyframeEnd').value);
     const duration = parseFloat(document.getElementById('keyframeDuration').value);
     const loop = document.getElementById('keyframeLoop').checked;
-    controller.keyframeAnimations[param] = { start, end, duration, loop };
-    controller.keyframeStartTime = null;
+    animationState.set('applyKeyframe', { param, start, end, duration, loop });
 });
 
 // === Initialization Startup ===
@@ -484,577 +519,4 @@ if (depthAudioBtn) {
         } catch (e) {}
         updateDepthAudioButton();
     });
-}
-
-// === High‑quality MP4 export (offscreen canvas + local ffmpeg.wasm) ===
-
-let ffmpegInstance = null;
-let ffmpegLoading = false;
-let ffmpegLoaded = false;
-
-// Keep a single FFmpeg instance for the batch export lifetime to avoid
-// re-instantiation (which commonly triggers WASM OOM in browsers).
-// Only use FFmpeg for Batch Export
-async function loadFFmpeg() {
-    if (ffmpegLoaded) return;
-    if (ffmpegLoading) {
-        return new Promise(resolve => {
-            const check = setInterval(() => {
-                if (ffmpegLoaded) { clearInterval(check); resolve(); }
-            }, 200);
-        });
-    }
-    ffmpegLoading = true;
-    try {
-        ffmpegInstance = new FFmpeg();
-        ffmpegInstance.on('log', ({ message }) => console.log('[ffmpeg]', message));
-        // Load using locally bundled core files
-        await ffmpegInstance.load({ coreURL, wasmURL });
-        ffmpegLoaded = true;
-        await ensureDirectoryEmpty('/output');
-        await ensureDirectoryEmpty('/input');
-    } catch (e) {
-        console.error('Failed to load FFmpeg:', e);
-        alert('Failed to load FFmpeg.wasm. This may be due to browser WASM memory limits. Try smaller batch sizes or run encoding on a native/server FFmpeg.');
-        throw e;
-    } finally {
-        ffmpegLoading = false;
-    }
-}
-
-async function removeDirContents(path) {
-    try {
-        const entries = await ffmpegInstance.listDir(path);
-        for (const entry of entries) {
-            if (entry.name === '.' || entry.name === '..') continue;
-            const fullPath = `${path}/${entry.name}`;
-            if (entry.isDir) {
-                await removeDirContents(fullPath);
-                await ffmpegInstance.deleteDir(fullPath);
-            } else {
-                await ffmpegInstance.deleteFile(fullPath);
-            }
-        }
-    } catch (e) {
-        // Directory may not exist yet or may already be empty.
-    }
-}
-
-async function ensureDirectoryEmpty(path) {
-    await removeDirContents(path);
-    try {
-        await ffmpegInstance.createDir(path);
-    } catch (e) {
-        // Ignore if the directory already exists.
-    }
-}
-
-// Attempt to fully unload FFmpeg.wasm to free WASM heap between chunks.
-async function unloadFFmpeg() {
-    if (!ffmpegInstance) return;
-    try {
-        // remove any files to reduce FS memory held by the module
-        await removeDirContents('/output');
-        await removeDirContents('/input');
-    } catch (e) {
-        // ignore
-    }
-    try {
-        if (typeof ffmpegInstance.exit === 'function') {
-            await ffmpegInstance.exit();
-        } else if (typeof ffmpegInstance.close === 'function') {
-            await ffmpegInstance.close();
-        }
-    } catch (e) {
-        console.warn('FFmpeg unload failed:', e);
-    }
-    ffmpegInstance = null;
-    ffmpegLoaded = false;
-    // yield to event loop to give GC a chance
-    await new Promise(r => setTimeout(r, 50));
-}
-
-// Reliable seek: waits for 'seeked' event and verifies frame is ready
-function seekDepthVideo(video, timeInSeconds) {
-    return new Promise((resolve) => {
-        if (!video || video.readyState < 2) { resolve(); return; }
-        const onSeeked = () => {
-            video.removeEventListener('seeked', onSeeked);
-            if (!video.seeking && video.readyState >= 2) {
-                resolve();
-            } else {
-                setTimeout(resolve, 50);
-            }
-        };
-        video.addEventListener('seeked', onSeeked);
-        video.currentTime = timeInSeconds;
-        setTimeout(() => {
-            video.removeEventListener('seeked', onSeeked);
-            resolve();
-        }, 2000);
-    });
-}
-
-async function startHQExport(durationSeconds) {
-    if (!ffmpegLoaded) {
-        await loadFFmpeg();
-        if (!ffmpegLoaded) return;
-    }
-
-    const hqBtn = document.getElementById('hqExportButton');
-    const progressContainer = document.getElementById('hqProgressContainer');
-    const progressBar = document.getElementById('hqProgressBar');
-    const progressText = document.getElementById('hqProgressText');
-
-    // 1. Pause main animation (state remains unchanged)
-    const wasPaused = controller.isPaused;
-    if (!wasPaused) controller.pause();
-
-    // 2. Create offscreen canvas
-    const offCanvas = document.createElement('canvas');
-    offCanvas.width = canvas.width;
-    offCanvas.height = canvas.height;
-    const offCtx = offCanvas.getContext('2d', { willReadFrequently: true });
-
-    // 3. Swap controller target to offscreen canvas
-    const origCanvas = controller.canvas;
-    const origCtx = controller.ctx;
-    controller.canvas = offCanvas;
-    controller.ctx = offCtx;
-
-    // 4. Prevent new rAF loops
-    const origRAF = window.requestAnimationFrame;
-    window.requestAnimationFrame = () => 0;
-
-    // 5. Allow manual _animate calls
-    controller.isPaused = false;
-    controller.animationFrameId = null;
-
-    // 6. Handle depth video source
-    const isDepthMode = controller.animationMode === 'depth';
-    const depthVideo = (isDepthMode && depthProcessor.depthSource === 'video')
-        ? depthProcessor.depthVideo
-        : null;
-
-    let origVideoTime = 0;
-    let origVideoPaused = true;
-    if (depthVideo) {
-        origVideoTime = depthVideo.currentTime;
-        origVideoPaused = depthVideo.paused;
-        depthVideo.pause();
-    }
-
-    // 7. Capture settings
-    const fps = 30;
-    const totalFrames = Math.ceil(durationSeconds * fps);
-    const frameInterval = 1000 / fps;
-    const baseTime = performance.now();
-
-    controller.startTime = baseTime;
-    controller.lastTimestamp = baseTime;
-
-    // UI state
-    hqBtn.disabled = true;
-    hqBtn.querySelector('span:last-child').textContent = 'Processing...';
-    progressContainer.style.display = 'block';
-    progressBar.style.width = '0%';
-    progressText.textContent = 'Capturing frames 0%';
-
-    await ensureDirectoryEmpty('/input');
-    await ensureDirectoryEmpty('/output');
-
-    // 8. Frame capture loop
-    for (let i = 0; i < totalFrames; i++) {
-        const frameTimeSeconds = (i * frameInterval) / 1000;
-        const fakeTimestamp = baseTime + i * frameInterval;
-
-        if (depthVideo) {
-            await seekDepthVideo(depthVideo, frameTimeSeconds);
-            await new Promise(resolve => setTimeout(resolve, 0));
-        }
-
-        controller._animate(fakeTimestamp);
-        const dataURL = offCanvas.toDataURL('image/png');
-        await writeFrameToFFmpeg(dataURL, i);
-
-        const percent = Math.round(((i + 1) / totalFrames) * 100);
-        progressBar.style.width = percent + '%';
-        progressText.textContent = `Capturing frame ${i + 1}/${totalFrames} (${percent}%)`;
-        await new Promise(resolve => setTimeout(resolve, 0));
-    }
-
-    // 9. Restore controller
-    controller.canvas = origCanvas;
-    controller.ctx = origCtx;
-    window.requestAnimationFrame = origRAF;
-    controller.startTime = null;
-    controller.lastTimestamp = null;
-    controller.isPaused = true;
-    controller.animationFrameId = null;
-
-    if (depthVideo) {
-        try {
-            if (!origVideoPaused) {
-                depthVideo.currentTime = origVideoTime;
-                depthVideo.play();
-            } else {
-                depthVideo.currentTime = origVideoTime;
-            }
-        } catch(e) {}
-    }
-
-    // 10. Encode video
-    progressText.textContent = 'Encoding video...';
-    try {
-        await ffmpegInstance.exec([
-            '-framerate', String(fps),
-            '-i', '/input/frame%05d.png',
-            '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
-            '-pix_fmt', 'yuv420p',
-            '/output/output.mp4'
-        ]);
-    } catch (e) {
-        console.error('Encoding failed:', e);
-        alert('Video encoding failed. Please try again.');
-        finishExport(wasPaused, hqBtn, progressContainer);
-        return;
-    }
-
-    // 11. Download
-    try {
-        progressText.textContent = 'Downloading video...';
-        const blob = await readOutputFile('output.mp4');
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `noise-animation-${durationSeconds}s.mp4`;
-        a.click();
-        URL.revokeObjectURL(url);
-    } catch (e) {
-        console.error('Download failed:', e);
-        alert('Video download failed. Please try again.');
-        finishExport(wasPaused, hqBtn, progressContainer);
-        return;
-    }
-
-    // 12. Cleanup
-    try {
-        await removeDirContents('/output');
-        await removeDirContents('/input');
-    } catch (e) {
-        console.debug('Cleanup warning (non-critical):', e);
-    }
-
-    finishExport(wasPaused, hqBtn, progressContainer);
-}
-
-
-function finishExport(wasPaused, btn, progressContainer) {
-    progressContainer.style.display = 'none';
-    btn.disabled = false;
-    btn.querySelector('span:last-child').textContent = 'Export HQ';
-    if (!wasPaused) controller.resume();
-}
-
-// ----- Batch export and reusable export helper -----
-let batchInProgress = false;
-
-async function exportVideoFromCurrentState(durationSeconds, outputFileName, progressCallback) {
-    if (!ffmpegLoaded) await loadFFmpeg();
-    if (!ffmpegLoaded) throw new Error('FFmpeg not loaded');
-
-    const wasPaused = controller.isPaused;
-    if (!wasPaused) controller.pause();
-
-    const offCanvas = document.createElement('canvas');
-    offCanvas.width = canvas.width;
-    offCanvas.height = canvas.height;
-    const offCtx = offCanvas.getContext('2d', { willReadFrequently: true });
-
-    const origCanvas = controller.canvas;
-    const origCtx = controller.ctx;
-    controller.canvas = offCanvas;
-    controller.ctx = offCtx;
-
-    const origRAF = window.requestAnimationFrame;
-    window.requestAnimationFrame = () => 0;
-
-    controller.isPaused = false;
-    controller.animationFrameId = null;
-
-    const depthVideo = (controller.animationMode === 'depth' && depthProcessor.depthSource === 'video')
-        ? depthProcessor.depthVideo
-        : null;
-    let origVideoTime = 0, origVideoPaused = true;
-    if (depthVideo) {
-        origVideoTime = depthVideo.currentTime;
-        origVideoPaused = depthVideo.paused;
-        depthVideo.pause();
-    }
-
-    const fps = 30;
-    const totalFrames = Math.ceil(durationSeconds * fps);
-    const frameInterval = 1000 / fps;
-    const baseTime = performance.now();
-    controller.startTime = baseTime;
-    controller.lastTimestamp = baseTime;
-
-    await ensureDirectoryEmpty('/input');
-    await ensureDirectoryEmpty('/output');
-
-    for (let i = 0; i < totalFrames; i++) {
-        const frameTimeSeconds = (i * frameInterval) / 1000;
-        const fakeTimestamp = baseTime + i * frameInterval;
-
-        if (depthVideo) {
-            await seekDepthVideo(depthVideo, frameTimeSeconds);
-            await new Promise(resolve => setTimeout(resolve, 0));
-        }
-
-        controller._animate(fakeTimestamp);
-        const dataURL = offCanvas.toDataURL('image/png');
-        await writeFrameToFFmpeg(dataURL, i);
-
-        if (typeof progressCallback === 'function') {
-            const percent = Math.round(((i + 1) / totalFrames) * 100);
-            progressCallback(percent, `Capturing frame ${i+1}/${totalFrames} (${percent}%)`);
-        }
-
-        await new Promise(resolve => setTimeout(resolve, 0));
-    }
-
-    // Restore
-    controller.canvas = origCanvas;
-    controller.ctx = origCtx;
-    window.requestAnimationFrame = origRAF;
-    controller.startTime = null;
-    controller.lastTimestamp = null;
-    controller.isPaused = true;
-    controller.animationFrameId = null;
-
-    if (depthVideo) {
-        try {
-            depthVideo.currentTime = origVideoTime;
-            if (!origVideoPaused) depthVideo.play().catch(() => {});
-        } catch(e) {}
-    }
-
-    // Encode
-    await ffmpegInstance.exec([
-        '-framerate', String(fps),
-        '-i', '/input/frame%05d.png',
-        '-c:v', 'libx264', '-preset', 'fast', '-crf', '18',
-        '-pix_fmt', 'yuv420p',
-        '/output/output.mp4'
-    ]);
-
-    const blob = await readOutputFile('output.mp4');
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = outputFileName;
-    a.click();
-    URL.revokeObjectURL(url);
-
-    try {
-        await removeDirContents('/output');
-        await removeDirContents('/input');
-        // attempt to remove any leftover FS root entries to reduce memory pressure
-        try { await ffmpegInstance.deleteFile('/output/output.mp4'); } catch (e) {}
-        try { await ffmpegInstance.deleteFile('/input/frame00000.png'); } catch (e) {}
-    } catch (e) {
-        console.debug('Cleanup warning (non-critical):', e);
-    }
-
-    if (!wasPaused) controller.resume();
-}
-
-// Helper: load Image from File
-function loadImageFromFile(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const img = new Image();
-            img.onload = () => resolve(img);
-            img.onerror = reject;
-            img.src = e.target.result;
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-    });
-}
-
-// Batch export images: images (File[]), mode = 'content'|'depth'
-async function batchExportImages(images, mode, durationSeconds) {
-    if (!ffmpegLoaded) await loadFFmpeg();
-    if (!ffmpegLoaded) return;
-
-    const total = images.length;
-    if (total === 0) return;
-
-    const progressDiv = document.getElementById('batchProgressContainer');
-    const progressBar = document.getElementById('batchProgressBar');
-    const progressText = document.getElementById('batchProgressText');
-    progressDiv.style.display = 'block';
-    batchInProgress = true;
-
-    // Save original state
-    const originalContentImage = contentRenderer.currentImage;
-    const originalDepthImageData = depthProcessor.depthImageData;
-    const originalIsPaused = controller.isPaused;
-
-    if (!originalIsPaused) controller.pause();
-
-    // Chunking: process in batches to reduce memory pressure and allow user control.
-    const CHUNK_SIZE = 25; // default files per chunk (tunable)
-    const numChunks = Math.ceil(total / CHUNK_SIZE);
-    for (let chunkIndex = 0; chunkIndex < numChunks; chunkIndex++) {
-        const start = chunkIndex * CHUNK_SIZE;
-        const end = Math.min(start + CHUNK_SIZE, total);
-        for (let i = start; i < end; i++) {
-        const file = images[i];
-        const percent = Math.round((i / total) * 100);
-        progressBar.style.width = percent + '%';
-        progressText.innerText = `Processing ${i+1}/${total}: ${file.name} (${percent}%)`;
-
-        if (mode === 'content') {
-            const img = await loadImageFromFile(file);
-            contentRenderer.currentImage = img;
-            contentRenderer.markDirty();
-            if (contentRenderer.contentType !== 'image') {
-                contentRenderer.contentType = 'image';
-                document.getElementById('contentType').value = 'image';
-            }
-        } else {
-            // Depth mode
-            try {
-                await depthProcessor.loadDepthImage(file);
-            } catch (e) {
-                console.warn('Failed to load depth image for', file.name, e);
-            }
-        }
-
-        controller.refreshNoise();
-        controller.startTime = null;
-        controller.depthVideoSyncBaseTime = null;
-
-        const baseName = file.name.replace(/\.[^/.]+$/, '');
-        const outputName = `${baseName}_${mode}_${durationSeconds}s.mp4`;
-
-        // per-file progress callback
-        const progressCallback = (pct, text) => {
-            progressBar.style.width = Math.round(((i + pct/100) / total) * 100) + '%';
-            progressText.innerText = `${file.name} — ${text}`;
-        };
-
-        try {
-            await exportVideoFromCurrentState(durationSeconds, outputName, progressCallback);
-        } catch (e) {
-            console.error('Batch export failed for', file.name, e);
-            progressText.innerText = `Failed: ${file.name}`;
-        }
-
-        // continue to next file; we keep the FFmpeg instance alive for the whole batch
-        }
-
-        // After finishing this chunk, automatically continue to the next chunk.
-        // To mitigate WASM heap pressure we attempt to fully unload and reload
-        // the FFmpeg instance between chunks (if the environment supports it).
-        if (chunkIndex < numChunks - 1) {
-            try {
-                await unloadFFmpeg();
-                // short pause to let the engine tear down
-                await new Promise(r => setTimeout(r, 100));
-                await loadFFmpeg();
-            } catch (e) {
-                console.warn('Failed to reload FFmpeg between chunks:', e);
-                // if reload fails, continue with the existing instance (if any)
-            }
-        }
-    }
-
-    // Restore originals
-    if (mode === 'content') {
-        contentRenderer.currentImage = originalContentImage;
-        contentRenderer.markDirty();
-    } else {
-        depthProcessor.depthImageData = originalDepthImageData;
-    }
-    if (!originalIsPaused) controller.resume();
-
-    progressBar.style.width = '100%';
-    progressText.innerText = `Batch export complete — ${total} videos.`;
-    setTimeout(() => { progressDiv.style.display = 'none'; }, 3000);
-    batchInProgress = false;
-}
-
-// Bind the button (only once)
-const hqExportBtn = document.getElementById('hqExportButton');
-if (hqExportBtn && !hqExportBtn._hqExportBound) {
-    hqExportBtn._hqExportBound = true;
-    hqExportBtn.addEventListener('click', () => {
-        const dur = parseInt(document.getElementById('hqExportDuration').value) || 10;
-        startHQExport(dur);
-    });
-}
-
-// Bind batch export button
-const batchBtn = document.getElementById('batchExportButton');
-if (batchBtn && !batchBtn._batchBound) {
-    batchBtn._batchBound = true;
-    batchBtn.addEventListener('click', async () => {
-        if (batchInProgress) {
-            alert('Batch export already in progress, please wait.');
-            return;
-        }
-        const fileInput = document.getElementById('batchImageInput');
-        const files = fileInput ? Array.from(fileInput.files) : [];
-        if (!files || files.length === 0) {
-            alert('Please select at least one image for batch export.');
-            return;
-        }
-        const mode = document.getElementById('batchMode').value;
-        const duration = parseInt(document.getElementById('batchDuration').value) || 10;
-        await batchExportImages(files, mode, duration);
-    });
-}
-
-// Helper: write a dataURL frame into FFmpeg's virtual FS
-async function writeFrameToFFmpeg(dataURL, index) {
-    if (!ffmpegInstance) throw new Error('FFmpeg not initialized');
-    const name = `/input/frame${String(index).padStart(5, '0')}.png`;
-    try {
-        const resp = await fetch(dataURL);
-        const ab = await resp.arrayBuffer();
-        const uint8 = new Uint8Array(ab);
-        if (typeof ffmpegInstance.FS === 'function') {
-            ffmpegInstance.FS('writeFile', name, uint8);
-        } else if (typeof ffmpegInstance.writeFile === 'function') {
-            await ffmpegInstance.writeFile(name, uint8);
-        } else {
-            throw new Error('No FS write API available on ffmpegInstance');
-        }
-    } catch (e) {
-        console.error('Failed to write frame to FFmpeg FS:', e);
-        throw e;
-    }
-}
-
-// Helper: read an output file from FFmpeg's FS and return a Blob
-async function readOutputFile(path) {
-    if (!ffmpegInstance) throw new Error('FFmpeg not initialized');
-    try {
-        let data;
-        if (typeof ffmpegInstance.FS === 'function') {
-            data = ffmpegInstance.FS('readFile', `/output/${path}`);
-        } else if (typeof ffmpegInstance.readFile === 'function') {
-            data = await ffmpegInstance.readFile(`/output/${path}`);
-        } else {
-            throw new Error('No FS read API available on ffmpegInstance');
-        }
-        return new Blob([data], { type: path.endsWith('.mp4') ? 'video/mp4' : 'application/octet-stream' });
-    } catch (e) {
-        console.error('Failed to read output file from FFmpeg FS:', e);
-        throw e;
-    }
 }
