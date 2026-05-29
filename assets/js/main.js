@@ -197,20 +197,6 @@ const scheduler = new Scheduler(controller, animationState);
 const uiController = new UIController({ controller, contentRenderer, depthProcessor, exportService, ffmpegService, scheduler, noiseGen, batchProcessor });
 uiController.init();
 
-// === General Collapsible Panel ===
-window.toggleSection = function(sectionId) {
-    const header = document.querySelector(`#${sectionId}Content`).previousElementSibling;
-    const content = document.getElementById(`${sectionId}Content`);
-    const isCollapsed = content.classList.contains('collapsed');
-    if (isCollapsed) {
-        content.classList.remove('collapsed');
-        header.classList.remove('collapsed');
-    } else {
-        content.classList.add('collapsed');
-        header.classList.add('collapsed');
-    }
-};
-
 // === Depth Control Events ===
 document.querySelectorAll('input[name="depthSource"]').forEach(radio => {
     radio.addEventListener('change', (e) => {
@@ -346,36 +332,6 @@ document.getElementById('removeBackgroundNoise').addEventListener('change', (e) 
 document.getElementById('backgroundColor').addEventListener('input', (e) => { animationState.set('backgroundColor', e.target.value); });
 document.getElementById('depthThreshold').addEventListener('input', (e) => { const v = parseInt(e.target.value); animationState.set('depthThreshold', v); document.getElementById('depthThresholdValue').textContent = v; });
 
-// Pause
-function togglePause() {
-    const depthVideo = depthProcessor && depthProcessor.depthVideo ? depthProcessor.depthVideo : null;
-    if (controller.isPaused) {
-        scheduler.resume();
-        document.querySelector('#canvasPauseButton span:not(.btn-icon)').textContent = 'Pause';
-        document.querySelector('#canvasPauseButton .btn-icon').textContent = '⏸';
-        document.getElementById('animationStatus').classList.add('active');
-        // resume depth video only if it was playing before pause
-        try {
-            if (depthVideo && window._depthVideoWasPlaying) {
-                depthVideo.play().catch(() => {});
-            }
-        } catch (e) {}
-        window._depthVideoWasPlaying = false;
-    } else {
-        // remember whether depth video was playing so we can restore on resume
-        try {
-            window._depthVideoWasPlaying = !!(depthVideo && !depthVideo.paused && !depthVideo.ended);
-            if (depthVideo) depthVideo.pause();
-        } catch (e) { window._depthVideoWasPlaying = false; }
-        
-        scheduler.pause();
-        document.querySelector('#canvasPauseButton span:not(.btn-icon)').textContent = 'Resume';
-        document.querySelector('#canvasPauseButton .btn-icon').textContent = '▶';
-        document.getElementById('animationStatus').classList.remove('active');
-    }
-}
-document.getElementById('canvasPauseButton').addEventListener('click', togglePause);
-
 // Recording (keep it simple, based on controller's canvas)
 let isRecording = false;
 let quickExportActive = false;
@@ -427,34 +383,6 @@ document.getElementById('recordButton').addEventListener('click', () => {
     if (isRecording) stopRecording(); else startRecording();
 });
 
-// === Quick Export Button ===
-const quickExportBtn = document.getElementById('quickExportButton');
-const quickExportDurationSelect = document.getElementById('quickExportDuration');
-quickExportBtn.addEventListener('click', () => {
-    if (isRecording) {
-        alert('Please stop the current recording before starting a quick export.');
-        return;
-    }
-    const dur = parseInt(quickExportDurationSelect.value) || 10;
-    quickExportBtn.disabled = true;
-    quickExportBtn.querySelector('span:last-child').textContent = 'Exporting...';
-    exportService.quickExport(dur, 30).then((blob) => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `quick-export-${dur}s.webm`;
-        a.click();
-        URL.revokeObjectURL(url);
-    }).catch(err => {
-        console.error('Quick export failed', err);
-        alert('Quick export failed: ' + (err && err.message ? err.message : String(err)));
-    }).finally(() => {
-        quickExportBtn.disabled = false;
-        quickExportBtn.querySelector('span:last-child').textContent = 'Quick Export';
-        quickExportBtn.classList.remove('recording');
-    });
-});
-
 // Transformation Parameters
 document.getElementById('rotationSpeed').addEventListener('input', (e) => { animationState.set('rotationSpeed', parseFloat(e.target.value)); });
 document.getElementById('scaleFactor').addEventListener('input', (e) => {
@@ -494,29 +422,3 @@ document.getElementById('contentStatus').classList.add('active');
 // Trigger UI linkage based on default animation mode
 document.getElementById('animationMode').dispatchEvent(new Event('change'));
 noiseGen.refresh('content', 'vertical');
-
-// Depth audio toggle (playback only). Default: muted
-window.depthAudioMuted = true;
-const depthAudioBtn = document.getElementById('depthAudioToggle');
-function updateDepthAudioButton() {
-    if (!depthAudioBtn) return;
-    const icon = depthAudioBtn.querySelector('.btn-icon');
-    const label = depthAudioBtn.querySelector('span:last-child');
-    if (window.depthAudioMuted) {
-        if (icon) icon.textContent = '🔇';
-        if (label) label.textContent = 'Muted';
-    } else {
-        if (icon) icon.textContent = '🔊';
-        if (label) label.textContent = 'Unmuted';
-    }
-}
-if (depthAudioBtn) {
-    updateDepthAudioButton();
-    depthAudioBtn.addEventListener('click', () => {
-        window.depthAudioMuted = !window.depthAudioMuted;
-        try {
-            if (depthProcessor && depthProcessor.depthVideo) depthProcessor.depthVideo.muted = window.depthAudioMuted;
-        } catch (e) {}
-        updateDepthAudioButton();
-    });
-}

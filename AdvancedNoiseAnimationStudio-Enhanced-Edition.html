@@ -524,8 +524,9 @@
               <option value="depth">Depth mode (replace depth map)</option>
             </select>
           </div>
+          <!-- image duration selector (only for images) -->
           <div class="control-group">
-            <label>Duration</label>
+            <label>Image Duration</label>
             <select id="batchDuration" class="compact-select">
               <option value="3">3s</option>
               <option value="5">5s</option>
@@ -533,10 +534,16 @@
               <option value="15">15s</option>
             </select>
           </div>
-          <button id="batchExportButton" class="modern-btn" style="background: #9c27b0; color: #fff;">
-            <span class="btn-icon">⚙️</span>
-            <span>Start Batch Export</span>
+          <!-- two separate buttons -->
+          <button id="batchExportImagesBtn" class="modern-btn" style="background: #2196f3; color: #fff;">
+            <span class="btn-icon">🖼️</span>
+            <span>Export Images</span>
           </button>
+          <button id="batchExportVideosBtn" class="modern-btn" style="background: #e91e63; color: #fff;">
+            <span class="btn-icon">🎬</span>
+            <span>Export Videos</span>
+          </button>
+          <span class="small-text" style="margin-left: 0.5rem;">(always uses Depth Mode with max duration)</span>
         </div>
         <div id="batchProgressContainer" style="display: none; margin-top: 0.75rem;">
           <div style="background: #333; border-radius: 4px; height: 8px; overflow: hidden;">

@@ -198,7 +198,7 @@ export default class UIController {
             });
         }
 
-        // Quick Export
+        // === Quick Export Button ===
         const quickExportBtn = document.getElementById('quickExportButton');
         const quickExportDurationSelect = document.getElementById('quickExportDuration');
         if (quickExportBtn) quickExportBtn.addEventListener('click', () => {
@@ -233,7 +233,7 @@ export default class UIController {
         document.getElementById('animationMode').dispatchEvent(new Event('change'));
         if (this.noiseGen) this.noiseGen.refresh('content', 'vertical');
 
-        // Depth audio toggle
+        // Depth audio toggle (playback only). Default: muted
         window.depthAudioMuted = true;
         const depthAudioBtn = document.getElementById('depthAudioToggle');
         const updateDepthAudioButton = () => {
@@ -282,21 +282,21 @@ export default class UIController {
                 }
             });
         }
+        
         // Bind batch export button
-        const batchBtn = document.getElementById('batchExportButton');
-        if (batchBtn && !batchBtn._batchBound) {
-            batchBtn._batchBound = true;
-            batchBtn.addEventListener('click', async () => {
+        // Bind image batch export button
+        const imageBatchBtn = document.getElementById('batchExportImagesBtn');
+        if (imageBatchBtn && !imageBatchBtn._bound) {
+            imageBatchBtn._bound = true;
+            imageBatchBtn.addEventListener('click', async () => {
                 if (this.batchProcessor.isRunning) {
                     alert('Batch export already in progress, please wait.');
                     return;
                 }
-                const videoInput = document.getElementById('batchVideoInput');
                 const imageInput = document.getElementById('batchImageInput');
-                const videoFiles = videoInput ? Array.from(videoInput.files) : [];
                 const imageFiles = imageInput ? Array.from(imageInput.files) : [];
-                if (!videoFiles.length && !imageFiles.length) {
-                    alert('Please select at least one image or video for batch export.');
+                if (!imageFiles.length) {
+                    alert('Please select at least one image.');
                     return;
                 }
                 const mode = document.getElementById('batchMode').value;
@@ -306,25 +306,50 @@ export default class UIController {
                 const progressText = document.getElementById('batchProgressText');
                 progressDiv.style.display = 'block';
                 try {
-                    if (videoFiles.length) {
-                        // When videos are provided, export each video using its original duration.
-                        await this.batchProcessor.processVideos(videoFiles, mode, (idx, total, fileName, status) => {
-                            const percent = Math.round((idx / total) * 100);
-                            progressBar.style.width = percent + '%';
-                            progressText.innerText = `${fileName}: ${status}`;
-                        });
-                    }
-                    if (imageFiles.length) {
-                        // Images: use selected duration
-                        await this.batchProcessor.processImages(imageFiles, mode, duration, (idx, total, fileName, status) => {
-                            const percent = Math.round((idx / total) * 100);
-                            progressBar.style.width = percent + '%';
-                            progressText.innerText = `${fileName}: ${status}`;
-                        });
-                    }
+                    await this.batchProcessor.processImages(imageFiles, mode, duration, (idx, total, fileName, status) => {
+                        const percent = Math.round((idx / total) * 100);
+                        progressBar.style.width = percent + '%';
+                        progressText.innerText = `${fileName}: ${status}`;
+                    });
                 } catch (err) {
                     console.error(err);
-                    alert('Batch export failed: ' + (err && err.message ? err.message : String(err)));
+                    alert('Batch export failed: ' + err.message);
+                } finally {
+                    progressDiv.style.display = 'none';
+                }
+            });
+        }
+
+        // Bind video batch export button
+        const videoBatchBtn = document.getElementById('batchExportVideosBtn');
+        if (videoBatchBtn && !videoBatchBtn._bound) {
+            videoBatchBtn._bound = true;
+            videoBatchBtn.addEventListener('click', async () => {
+                if (this.batchProcessor.isRunning) {
+                    alert('Batch export already in progress, please wait.');
+                    return;
+                }
+                const videoInput = document.getElementById('batchVideoInput');
+                const videoFiles = videoInput ? Array.from(videoInput.files) : [];
+                if (!videoFiles.length) {
+                    alert('Please select at least one video.');
+                    return;
+                }
+                // Force depth mode for videos (ignore dropdown value)
+                const mode = 'depth';
+                const progressDiv = document.getElementById('batchProgressContainer');
+                const progressBar = document.getElementById('batchProgressBar');
+                const progressText = document.getElementById('batchProgressText');
+                progressDiv.style.display = 'block';
+                try {
+                    await this.batchProcessor.processVideos(videoFiles, mode, (idx, total, fileName, status) => {
+                        const percent = Math.round((idx / total) * 100);
+                        progressBar.style.width = percent + '%';
+                        progressText.innerText = `${fileName}: ${status}`;
+                    });
+                } catch (err) {
+                    console.error(err);
+                    alert('Batch video export failed: ' + err.message);
                 } finally {
                     progressDiv.style.display = 'none';
                 }
