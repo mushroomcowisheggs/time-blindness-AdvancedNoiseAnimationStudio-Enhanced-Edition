@@ -109,9 +109,23 @@ export default class RenderEngine {
                 }
 
                 let offsetX = x, offsetY = y;
-                if (depth >= depthProcessor.lowerThreshold && depth <= depthProcessor.upperThreshold) {
-                    if (movementDirection === 'vertical') { offsetY = (y + offset) % height; }
-                    else { offsetX = (x + offset) % width; }
+                const isDepthInRange = (depth >= depthProcessor.lowerThreshold && depth <= depthProcessor.upperThreshold);
+                if (isDepthInRange) {
+                    // Inside the threshold: forward scrolling
+                    if (movementDirection === 'vertical') {
+                        offsetY = (y + offset) % height;
+                    } else {
+                        offsetX = (x + offset) % width;
+                    }
+                } else if (c.enableOpposingMotion) {
+                    // Outside the threshold and reverse scrolling has been enabled
+                    if (movementDirection === 'vertical') {
+                        offsetY = (y - offset + height) % height;
+                    } else {
+                        offsetX = (x - offset + width) % width;
+                    }
+                } else {
+                    // If reverse scrolling is not enabled, the original coordinates (stationary) will remain. 
                 }
                 const sampleIndex = offsetY * width + offsetX;
                 const noiseValue = noiseField[sampleIndex];

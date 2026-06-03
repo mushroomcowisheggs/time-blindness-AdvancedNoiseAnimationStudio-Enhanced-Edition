@@ -91,7 +91,7 @@ export default class NoiseGenerator {
         }
     }
     
-    async refresh(animationMode, movementDirection) {
+    async refresh(animationMode, movementDirection, nowMs = null) {
         const size = this.width * this.height;
         // Delegate refresh to active strategy
         // switch strategy if noiseType changed
@@ -100,6 +100,6 @@ export default class NoiseGenerator {
         } else {
             this._strategy = this._strategies[this.noiseType];
         }
-        return await this._strategy.refresh(animationMode, movementDirection);
+        return await this._strategy.refresh(animationMode, movementDirection, nowMs);
     }
 }

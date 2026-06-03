@@ -85,7 +85,13 @@ export default class UIController {
         document.getElementById('depthScale').addEventListener('input', (e) => {
             animationState.set('depthScale', parseFloat(e.target.value) || 2);
         });
-
+        const opposingMotionCheckbox = document.getElementById('enableOpposingMotion');
+        if (opposingMotionCheckbox) {
+            opposingMotionCheckbox.addEventListener('change', (e) => {
+                animationState.set('enableOpposingMotion', e.target.checked);
+            });
+        }
+        
         // === Content Control Events ===
         document.getElementById('contentType').addEventListener('change', (e) => {
             animationState.set('contentType', e.target.value);
@@ -145,7 +151,21 @@ export default class UIController {
         document.getElementById('gradientDirection').addEventListener('change', (e) => { animationState.set('gradientDirection', e.target.value); });
         document.getElementById('gradientMin').addEventListener('input', (e) => { const v = parseInt(e.target.value); animationState.set('gradientMin', v); document.getElementById('gradientMinValue').textContent = v; });
         document.getElementById('gradientMax').addEventListener('input', (e) => { const v = parseInt(e.target.value); animationState.set('gradientMax', v); document.getElementById('gradientMaxValue').textContent = v; });
-
+        // Raw gradient toggle (Content Mode)
+        const gradientRawToggle = document.getElementById('gradientRawToggle');
+        if (gradientRawToggle) {
+            gradientRawToggle.addEventListener('change', (e) => {
+                animationState.set('gradientRawMode', e.target.checked);
+            });
+        }
+        // Unified gradient toggle (Depth Mode)
+        const unifiedGradientToggle = document.getElementById('unifiedGradientToggle');
+        if (unifiedGradientToggle) {
+            unifiedGradientToggle.addEventListener('change', (e) => {
+                animationState.set('unifiedGradient', e.target.checked);
+            });
+        }
+        
         // Colourful
         document.getElementById('colourfulDensity').addEventListener('input', (e) => { const v = parseInt(e.target.value)/100; animationState.set('colourfulDensity', v); document.getElementById('colourfulDensityValue').textContent = (v*100) + '%'; });
 

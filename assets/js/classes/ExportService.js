@@ -150,6 +150,14 @@ export default class ExportService {
             // Update motion state before rendering this frame (Content Mode)
             controller.updateMotionStateForElapsed(elapsed, delta, fakeTimestamp);
             
+            if (controller.noiseGenerator.noiseType === 'dynamic') {
+                await controller.noiseGenerator.refresh(
+                    controller.animationMode,
+                    controller.movementDirection,
+                    fakeTimestamp   // Virtual
+                );
+            }
+            
             if (depthVideo) {
                 await this._seekDepthVideo(depthVideo, elapsed);
             }

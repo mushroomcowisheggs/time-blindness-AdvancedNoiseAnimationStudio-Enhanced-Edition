@@ -34,9 +34,14 @@ export default class NoiseStrategyDynamic extends NoiseStrategyBase {
         return map;
     }
 
-    async refresh(animationMode, movementDirection) {
+    async refresh(animationMode, movementDirection, nowMs = null) {
         const size = this.g.width * this.g.height;
-        const t = Math.floor(performance.now() / 1000 * this.g.dynamicSpeed);
+        let t;
+        if (nowMs !== null) {
+            t = Math.floor(nowMs / 1000 * this.g.dynamicSpeed);
+        } else {
+            t = Math.floor(performance.now() / 1000 * this.g.dynamicSpeed);
+        }
         const baseBlock = Math.max(1, Math.round(this.g.speckleSize));
         const freqScaleX = Math.max(0.1, this.g.dynamicFrequencyX * 100);
         const freqScaleY = Math.max(0.1, this.g.dynamicFrequencyY * 100);

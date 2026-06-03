@@ -35,6 +35,7 @@ export default class AnimationController {
         this.removeBackgroundNoise = false;
         this.backgroundColor = '#ffffff';
         this.depthThreshold = 5;
+        this.enableOpposingMotion = false;
         
         this.foregroundColorMode = 'grayscale';
         this.foregroundHue = 0;

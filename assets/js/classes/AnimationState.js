@@ -7,6 +7,7 @@ class AnimationState {
             backgroundMode: 'dynamic',
             movementDirection: 'vertical',
             animationSpeed: 1,
+            enableOpposingMotion: false,
             unifiedGradient: false,
             gradientRawMode: false,
             noiseType: 'grayscale'
