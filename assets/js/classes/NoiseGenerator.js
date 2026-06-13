@@ -19,7 +19,7 @@ export default class NoiseGenerator {
         this.gradientDirection = 'horizontal';
         this.gradientMin = 0;
         this.gradientMax = 255;
-        this.gradientRawMode = false;
+        this.gradientRawMode = true;
         this.colourfulDensity = 0.5;
         this.dynamicFrequencyX = 0.02;
         this.dynamicFrequencyY = 0.02;

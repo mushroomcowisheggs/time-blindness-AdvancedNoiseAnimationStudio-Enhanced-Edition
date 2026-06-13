@@ -9,7 +9,7 @@ class AnimationState {
             animationSpeed: 1,
             enableOpposingMotion: false,
             unifiedGradient: false,
-            gradientRawMode: false,
+            gradientRawMode: true,
             noiseType: 'grayscale'
         };
     }
