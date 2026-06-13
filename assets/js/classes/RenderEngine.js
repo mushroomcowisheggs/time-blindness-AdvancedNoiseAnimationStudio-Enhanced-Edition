@@ -46,9 +46,9 @@ export default class RenderEngine {
     renderToContext(ctx, controller, motionState, timestamp, deltaSeconds = 0, elapsedSeconds = 0) {
         const c = controller;
         // choose depth/content mode
-        if (c.isDepthAnimationMode || c.depthProcessor.depthImageData) {
+        if (c.isDepthAnimationMode) {
             this._renderDepthMode(ctx, c, motionState, elapsedSeconds, timestamp);
-        } else if (c.animationMode === 'content') {
+        } else {
             this._renderContentMode(ctx, c, motionState, elapsedSeconds, timestamp);
         }
     }
@@ -69,10 +69,13 @@ export default class RenderEngine {
         const { movementDirection, depthProcessor, noiseGenerator } = c;
         const pixelsPerSecond = depthProcessor.foregroundSpeed * depthProcessor.depthScale;
         const totalOffset = pixelsPerSecond * elapsedSeconds;
-        const offset = movementDirection === 'vertical'
-            ? Math.floor(totalOffset) % height
-            : Math.floor(totalOffset) % width;
-
+        let rawOffset;
+        if (movementDirection === 'vertical') {
+            rawOffset = Math.floor(totalOffset) % height;
+        } else {
+            rawOffset = Math.floor(totalOffset) % width;
+        }
+        
         const imageData = ctx.createImageData(width, height);
         const data = imageData.data;
         const noiseField = noiseGenerator.noiseField;
@@ -113,16 +116,16 @@ export default class RenderEngine {
                 if (isDepthInRange) {
                     // Inside the threshold: forward scrolling
                     if (movementDirection === 'vertical') {
-                        offsetY = (y + offset) % height;
+                        offsetY = (y + rawOffset) % height;
                     } else {
-                        offsetX = (x + offset) % width;
+                        offsetX = (x + rawOffset) % width;
                     }
                 } else if (c.enableOpposingMotion) {
                     // Outside the threshold and reverse scrolling has been enabled
                     if (movementDirection === 'vertical') {
-                        offsetY = (y - offset + height) % height;
+                        offsetY = (y - rawOffset + height) % height;
                     } else {
-                        offsetX = (x - offset + width) % width;
+                        offsetX = (x - rawOffset + width) % width;
                     }
                 } else {
                     // If reverse scrolling is not enabled, the original coordinates (stationary) will remain. 

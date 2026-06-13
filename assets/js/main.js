@@ -10,6 +10,7 @@ import ExportService from './classes/ExportService.js';
 import FFmpegService from './classes/FFmpegService.js';
 import UIController from './classes/UIController.js';
 import BatchProcessor from './classes/BatchProcessor.js';
+import { loadImageFromFile } from './utils.js';
 
 // === Add FFmpeg local module imports ===
 import { FFmpeg } from '@ffmpeg/ffmpeg';
