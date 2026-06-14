@@ -100,7 +100,8 @@ export default class ExportService {
     
     async exportToMP4(durationSeconds, onProgress) {
         const { controller, ffmpegService, renderEngine, fps } = this;
-        await ffmpegService.load();
+        await this.ffmpegService.unload();
+        await this.ffmpegService.load();
 
         const wasPaused = controller.isPaused;
         if (!wasPaused) controller.pause();
