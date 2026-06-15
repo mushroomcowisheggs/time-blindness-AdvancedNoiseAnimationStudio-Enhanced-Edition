@@ -15,8 +15,8 @@ import { loadImageFromFile } from './utils.js';
 // === Add FFmpeg local module imports ===
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 // Use absolute paths so dev server can serve the ffmpeg core files reliably
-const coreURL = new URL('/node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.js', import.meta.url).href;
-const wasmURL = new URL('/node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.wasm', import.meta.url).href;
+const coreURL = '/node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.js';
+const wasmURL = '/node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.wasm';
 
 // === Get Canvas ===
 const canvas = document.getElementById('noiseCanvas');

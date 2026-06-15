@@ -1,148 +1,72 @@
-// assets/js/classes/FFmpegService.js
-import { FFmpeg } from '@ffmpeg/ffmpeg';
-
 export default class FFmpegService {
     constructor(coreURL, wasmURL) {
         this.coreURL = coreURL;
         this.wasmURL = wasmURL;
-        this.ffmpeg = null;
-        this.loading = false;
-        this.loaded = false;
+        this.worker = null;
+        this.nextId = 0;
+        this.pending = new Map();
     }
 
     async load() {
-        if (this.loaded) return;
-        if (this.loading) {
-            return new Promise(resolve => {
-                const check = setInterval(() => {
-                    if (this.loaded) { clearInterval(check); resolve(); }
-                }, 200);
-            });
-        }
-        this.loading = true;
-        try {
-            this.ffmpeg = new FFmpeg();
-            this.ffmpeg.on('log', ({ message }) => console.log('[ffmpeg]', message));
-            await this.ffmpeg.load({ coreURL: this.coreURL, wasmURL: this.wasmURL });
-            this.loaded = true;
-            await this.ensureDirectoryEmpty('/output');
-            await this.ensureDirectoryEmpty('/input');
-        } catch (e) {
-            console.error('FFmpegService.load failed', e);
-            throw e;
-        } finally {
-            this.loading = false;
-        }
+        if (this.worker) await this.unload();
+        this.worker = new Worker(new URL('../ffmpeg-worker.js', import.meta.url), { type: 'module' });
+        this.worker.onmessage = (e) => {
+            const { id, type, blob, error } = e.data;
+            const p = this.pending.get(id);
+            if (!p) return;
+            if (type === 'error') p.reject(new Error(error));
+            else p.resolve({ type, blob });
+            this.pending.delete(id);
+        };
+        this.worker.onerror = (err) => {
+            console.error('[FFmpegService] Worker error', err);
+            for (const [id, p] of this.pending.entries()) {
+                p.reject(new Error('Worker error: ' + (err.message || err)));
+                this.pending.delete(id);
+            }
+        };
+        await this._post('init', { coreURL: this.coreURL, wasmURL: this.wasmURL });
     }
 
     async unload() {
-        if (!this.ffmpeg) return;
-        try {
-            await this.removeDirContents('/output');
-            await this.removeDirContents('/input');
-        } catch (e) {}
-        try {
-            if (typeof this.ffmpeg.exit === 'function') await this.ffmpeg.exit();
-            else if (typeof this.ffmpeg.close === 'function') await this.ffmpeg.close();
-        } catch (e) {
-            console.warn('FFmpegService.unload failed', e);
+        if (this.worker) {
+            this._postNoReply('terminate');
+            this.worker.terminate();
+            this.worker = null;
         }
-        this.ffmpeg = null;
-        this.loaded = false;
-        await new Promise(r => setTimeout(r, 50));
-    }
-
-    async removeDirContents(path) {
-        if (!this.ffmpeg) return;
-        try {
-            const entries = await this.ffmpeg.listDir(path);
-            for (const entry of entries) {
-                if (entry.name === '.' || entry.name === '..') continue;
-                const fullPath = `${path}/${entry.name}`;
-                if (entry.isDir) {
-                    await this.removeDirContents(fullPath);
-                    await this.ffmpeg.deleteDir(fullPath);
-                } else {
-                    await this.ffmpeg.deleteFile(fullPath);
-                }
-            }
-        } catch (e) {
-            // ignore
+        for (const [id, p] of this.pending.entries()) {
+            p.reject(new Error('FFmpegService unloaded'));
+            this.pending.delete(id);
         }
     }
 
-    async ensureDirectoryEmpty(path) {
-        if (!this.ffmpeg) return;
-        await this.removeDirContents(path);
-        try { await this.ffmpeg.createDir(path); } catch (e) {}
-    }
-
-    async exec(args) {
-        if (!this.ffmpeg) throw new Error('FFmpeg not loaded');
-        return this.ffmpeg.exec(args);
+    async reset() {
+        await this._post('reset', {});
     }
 
     async writeFrame(dataURL, index) {
-        if (!this.ffmpeg) throw new Error('FFmpeg not initialized');
-        const name = `/input/frame${String(index).padStart(5, '0')}.png`;
-        try {
-            const resp = await fetch(dataURL);
-            const ab = await resp.arrayBuffer();
-            const uint8 = new Uint8Array(ab);
-            if (typeof this.ffmpeg.FS === 'function') {
-                this.ffmpeg.FS('writeFile', name, uint8);
-            } else if (typeof this.ffmpeg.writeFile === 'function') {
-                await this.ffmpeg.writeFile(name, uint8);
-            } else {
-                throw new Error('No FS write API available on ffmpeg instance');
-            }
-        } catch (e) {
-            console.error('FFmpegService.writeFrame failed', e);
-            throw e;
-        }
+        await this._post('writeFrame', { dataURL, index });
+    }
+
+    async exec(args) {
+        await this._post('exec', { args });
     }
 
     async readOutput(path) {
-        if (!this.ffmpeg) throw new Error('FFmpeg not initialized');
-        try {
-            let data;
-            if (typeof this.ffmpeg.FS === 'function') {
-                data = this.ffmpeg.FS('readFile', `/output/${path}`);
-            } else if (typeof this.ffmpeg.readFile === 'function') {
-                data = await this.ffmpeg.readFile(`/output/${path}`);
-            } else {
-                throw new Error('No FS read API available on ffmpeg instance');
-            }
-            return new Blob([data], { type: path.endsWith('.mp4') ? 'video/mp4' : 'application/octet-stream' });
-        } catch (e) {
-            console.error('FFmpegService.readOutput failed', e);
-            throw e;
-        }
+        const res = await this._post('readOutput', { path });
+        return res.blob;
     }
 
-    async deleteFile(path) {
-        if (!this.ffmpeg) return;
-        try {
-            if (typeof this.ffmpeg.deleteFile === 'function') {
-                await this.ffmpeg.deleteFile(path);
-            } else if (typeof this.ffmpeg.FS === 'function') {
-                try { this.ffmpeg.FS('unlink', path); } catch (e) {}
-            }
-        } catch (e) {
-            // ignore
-        }
+    _post(type, payload) {
+        return new Promise((resolve, reject) => {
+            const id = this.nextId++;
+            this.pending.set(id, { resolve, reject });
+            this.worker.postMessage({ id, type, ...payload });
+        });
     }
 
-    async deleteDir(path) {
-        if (!this.ffmpeg) return;
-        try {
-            if (typeof this.ffmpeg.deleteDir === 'function') {
-                await this.ffmpeg.deleteDir(path);
-            } else if (typeof this.ffmpeg.FS === 'function') {
-                // no direct deleteDir; leave for removeDirContents
-            }
-        } catch (e) {
-            // ignore
-        }
+    _postNoReply(type, payload) {
+        const id = this.nextId++;
+        this.worker.postMessage({ id, type, ...payload });
     }
 }
