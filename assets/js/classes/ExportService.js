@@ -27,7 +27,7 @@ export default class ExportService {
             canvas.height = height;
             canvas.style.display = 'none';
             document.body.appendChild(canvas);
-            const ctx = canvas.getContext('2d');
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
             const stream = canvas.captureStream(fps);
             let recorded = [];
             let mediaRecorder;
@@ -114,7 +114,7 @@ export default class ExportService {
 
         const baseTime = performance.now();
         const offCanvas = new OffscreenCanvas(width, height);
-        const offCtx = offCanvas.getContext('2d');
+        const offCtx = offCanvas.getContext('2d', { willReadFrequently: true });
 
         for (let i = 0; i < totalFrames; i++) {
             const fakeTimestamp = baseTime + i * frameInterval;

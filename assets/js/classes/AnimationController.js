@@ -5,7 +5,7 @@ import MotionState from './MotionState.js';
 export default class AnimationController {
     constructor(canvas, noiseGenerator, contentRenderer, depthProcessor) {
         this.canvas = canvas;
-        this.ctx = canvas.getContext('2d');
+        this.ctx = canvas.getContext('2d', { willReadFrequently: true });
         this.ctx.imageSmoothingEnabled = false;
         this.width = canvas.width;
         this.height = canvas.height;
@@ -82,18 +82,18 @@ export default class AnimationController {
         this.renderEngine = new RenderEngine(this);
     }
 
-    // New API: render frame at a given timestamp into offscreen ImageData
+    // Render frame at a given timestamp into offscreen ImageData
     getFrameAtTime(timestamp) {
         // Use RenderEngine to produce ImageData for the requested timestamp
         const w = this.width, h = this.height;
         let off, ctx;
         if (typeof OffscreenCanvas !== 'undefined') {
             off = new OffscreenCanvas(w, h);
-            ctx = off.getContext('2d');
+            ctx = off.getContext('2d', { willReadFrequently: true });
         } else {
             off = document.createElement('canvas');
             off.width = w; off.height = h;
-            ctx = off.getContext('2d');
+            ctx = off.getContext('2d', { willReadFrequently: true });
         }
         const fakeNow = timestamp;
         const elapsedSeconds = (fakeNow - (this.startTime || fakeNow)) / 1000;
@@ -106,7 +106,7 @@ export default class AnimationController {
             // Some OffscreenCanvas contexts may not support getImageData; copy to a visible canvas
             if (off instanceof OffscreenCanvas) {
                 const tmp = document.createElement('canvas'); tmp.width = w; tmp.height = h;
-                const tmpCtx = tmp.getContext('2d');
+                const tmpCtx = tmp.getContext('2d', { willReadFrequently: true });
                 tmpCtx.drawImage(off, 0, 0);
                 return tmpCtx.getImageData(0, 0, w, h);
             }

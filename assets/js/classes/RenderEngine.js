@@ -16,12 +16,12 @@ export default class RenderEngine {
         let offscreen, ctx;
         if (typeof OffscreenCanvas !== 'undefined') {
             offscreen = new OffscreenCanvas(w, h);
-            ctx = offscreen.getContext('2d');
+            ctx = offscreen.getContext('2d', { willReadFrequently: true });
         } else {
             offscreen = document.createElement('canvas');
             offscreen.width = w;
             offscreen.height = h;
-            ctx = offscreen.getContext('2d');
+            ctx = offscreen.getContext('2d', { willReadFrequently: true });
         }
         // Delegate the actual drawing using existing renderToContext logic
         this.renderToContext(ctx, controller, motionState, timestamp, deltaSeconds, elapsedSeconds);
@@ -33,7 +33,7 @@ export default class RenderEngine {
             if (offscreen instanceof OffscreenCanvas) {
                 const tmp = document.createElement('canvas');
                 tmp.width = w; tmp.height = h;
-                const tmpCtx = tmp.getContext('2d');
+                const tmpCtx = tmp.getContext('2d', { willReadFrequently: true });
                 tmpCtx.drawImage(offscreen, 0, 0);
                 return tmpCtx.getImageData(0, 0, w, h);
             }

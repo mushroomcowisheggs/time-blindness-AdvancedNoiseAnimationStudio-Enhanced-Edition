@@ -207,7 +207,7 @@ export default class BatchProcessor {
                     const c = document.createElement('canvas');
                     c.width = this.contentRenderer.width;
                     c.height = this.contentRenderer.height;
-                    const ctx = c.getContext('2d');
+                    const ctx = c.getContext('2d', { willReadFrequently: true });
                     ctx.drawImage(v, 0, 0, c.width, c.height);
                     const img = new Image();
                     img.onload = () => {

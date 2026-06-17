@@ -33,7 +33,7 @@ export default class DepthProcessor {
                     const tmpC = document.createElement('canvas');
                     tmpC.width = this.width;
                     tmpC.height = this.height;
-                    const tmpCtx = tmpC.getContext('2d');
+                    const tmpCtx = tmpC.getContext('2d', { willReadFrequently: true });
                     tmpCtx.fillStyle = 'black';
                     tmpCtx.fillRect(0, 0, tmpC.width, tmpC.height);
                     
